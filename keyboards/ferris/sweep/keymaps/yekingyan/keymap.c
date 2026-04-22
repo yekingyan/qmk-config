@@ -18,23 +18,20 @@
  */
 
 #include QMK_KEYBOARD_H
-#include "gpio.h"
-#include "hardware/gpio.h"
 
 // ==========================================
 // RP2040 ADC 引脚修复
-// GP26-29 上电默认为 ADC 模式，内部上拉不生效
-// 导致 direct pin 扫描误判为按下（ghost keys）
-// 必须在初始化时强制切换为 GPIO 输入 + 上拉
+// GP26-29 上电默认为 ADC 模式，QMK gpio_set_pin_input_high()
+// 可能无法覆盖 ADC 功能复用，导致内部上拉不生效
+// → direct pin 扫描误判为按下（ghost keys: werttttt）
+// 用 QMK 抽象层在 matrix_init 之后再次强制设置
 // ==========================================
 void keyboard_post_init_user(void) {
     // F4=GP29, F5=GP28, F6=GP27, F7=GP26 (Sweep 左手第一行 T/R/E/W)
-    const uint8_t adc_pins[] = {26, 27, 28, 29};
-    for (uint8_t i = 0; i < sizeof(adc_pins); i++) {
-        gpio_init(adc_pins[i]);
-        gpio_set_dir(adc_pins[i], GPIO_IN);
-        gpio_pull_up(adc_pins[i]);
-    }
+    gpio_set_pin_input_high(GP26);
+    gpio_set_pin_input_high(GP27);
+    gpio_set_pin_input_high(GP28);
+    gpio_set_pin_input_high(GP29);
 }
 
 enum layers {

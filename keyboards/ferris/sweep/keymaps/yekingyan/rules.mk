@@ -14,4 +14,4 @@ EXTRAKEY_ENABLE = yes
 LTO_ENABLE = yes
 
 # RP2040 converter（Pro Micro RP2040 引脚映射）
-CONVERT_TO = sparkfun_pm2040
+CONVERT_TO = rp2040_ce
