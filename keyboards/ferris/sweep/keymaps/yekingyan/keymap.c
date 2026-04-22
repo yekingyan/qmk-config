@@ -27,11 +27,13 @@
 // 用 QMK 抽象层在 matrix_init 之后再次强制设置
 // ==========================================
 void keyboard_post_init_user(void) {
-    // F4=GP29, F5=GP28, F6=GP27, F7=GP26 (Sweep 左手第一行 T/R/E/W)
-    gpio_set_pin_input_high(GP26);
-    gpio_set_pin_input_high(GP27);
-    gpio_set_pin_input_high(GP28);
-    gpio_set_pin_input_high(GP29);
+    // Sweep 左手第一行 W/E/R/T 对应 Pro Micro 引脚 F7/F6/F5/F4
+    // converter 映射到 RP2040 GP26/27/28/29（ADC 引脚）
+    // 强制重新设置为 GPIO 输入 + 上拉，覆盖 ADC 默认模式
+    gpio_set_pin_input_high(F4);
+    gpio_set_pin_input_high(F5);
+    gpio_set_pin_input_high(F6);
+    gpio_set_pin_input_high(F7);
 }
 
 enum layers {
