@@ -19,6 +19,25 @@
 
 #include QMK_KEYBOARD_H
 
+// RP2040 GP26-29 (ADC 引脚) 修复
+// 硬件 reset 后 PADS_BANK0 默认值 0x1F，IE bit (bit6) = 0，输入禁用
+// ChibiOS PAL 的 palSetLineMode(INPUT_PULLUP) 不会设置 IE bit
+// 必须在 matrix_init 之前手动启用
+#define PADS_BANK0_BASE   0x4001C000
+#define IO_BANK0_BASE     0x40014000
+#define PADS_BANK0_GPIO(n) (*(volatile uint32_t *)(PADS_BANK0_BASE + 0x04 + (n) * 4))
+#define IO_BANK0_GPIO_CTRL(n) (*(volatile uint32_t *)(IO_BANK0_BASE + 0x04 + (n) * 8))
+
+// QMK early init hook，在 ChibiOS 初始化完成后、matrix init 之前执行
+void board_init(void) {
+    for (uint8_t pin = 26; pin <= 29; pin++) {
+        // FUNCSEL=5 (SIO/GPIO)，踢掉 ADC 复用
+        IO_BANK0_GPIO_CTRL(pin) = 5;
+        // IE=1 + PUE=1 + SCHMITT=1，启用输入 + 上拉 + 施密特触发
+        PADS_BANK0_GPIO(pin) = (1 << 6) | (1 << 3) | (1 << 1);
+    }
+}
+
 enum layers {
     _BASE,
     _NAV,
