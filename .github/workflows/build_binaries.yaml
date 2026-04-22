@@ -39,7 +39,7 @@ jobs:
       - name: QMK setup
         run: |
           cd vial-qmk
-          qmk setup -yes -H .
+          qmk setup --yes --home .
 
       - name: Build firmware
         run: |
