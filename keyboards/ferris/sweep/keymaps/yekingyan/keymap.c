@@ -20,83 +20,51 @@
 #include QMK_KEYBOARD_H
 
 // ==========================================
-// GPIO 诊断模式
-// 按下左上角第一个键 (Q 位) 输出所有 GPIO 状态
-// 格式: "GP0:H GP1:H GP2:L ..." (H=高电平 L=低电平)
+// RP2040 ADC 引脚 ghost keys 修复
+// GP26-29 是 ADC 复用引脚，RP2040 上电后 ADC 外设可能
+// 劫持这些引脚的控制权，导致 ChibiOS PAL 设置的上拉不生效。
+// 解决方案：直接写 PADS_BANK0 寄存器，强制启用 IE + PUE，
+// 并关闭 ADC 的 IO_CTRL 覆盖。
+// 在 matrix_init_pins 之前通过 early_hardware_init_pre 执行。
 // ==========================================
 
-// RP2040 有 GP0-GP29 共 30 个 GPIO
-// 用 ChibiOS PAL 直接读取，绕过 converter 映射
-#include "hal.h"
+// RP2040 寄存器地址
+#define PADS_BANK0_BASE   0x4001C000
+#define IO_BANK0_BASE     0x40014000
+// PADS_BANK0_GPIO26 = BASE + 0x04 + 26*4 = BASE + 0x6C
+#define PADS_BANK0_GPIO(n) (*(volatile uint32_t *)(PADS_BANK0_BASE + 0x04 + (n) * 4))
+// IO_BANK0 GPIO_CTRL: BASE + 0x04 + pin*8
+#define IO_BANK0_GPIO_CTRL(n) (*(volatile uint32_t *)(IO_BANK0_BASE + 0x04 + (n) * 8))
 
-static void type_char(char c) {
-    if (c >= '0' && c <= '9') {
-        tap_code(KC_0 + (c - '0'));
-    } else if (c >= 'a' && c <= 'z') {
-        tap_code(KC_A + (c - 'a'));
-    } else if (c >= 'A' && c <= 'Z') {
-        register_code(KC_LSFT);
-        tap_code(KC_A + (c - 'A'));
-        unregister_code(KC_LSFT);
-    } else if (c == ':') {
-        register_code(KC_LSFT);
-        tap_code(KC_SCLN);
-        unregister_code(KC_LSFT);
-    } else if (c == ' ') {
-        tap_code(KC_SPC);
-    } else if (c == '\n') {
-        tap_code(KC_ENT);
+// PADS_BANK0 位定义
+#define PADS_IE   (1 << 6)  // Input Enable
+#define PADS_OD   (1 << 7)  // Output Disable
+#define PADS_PUE  (1 << 3)  // Pull-Up Enable
+#define PADS_PDE  (1 << 2)  // Pull-Down Enable
+
+static void fix_adc_pins(void) {
+    for (uint8_t pin = 26; pin <= 29; pin++) {
+        // 1. 设置 PADS: IE=1, PUE=1, PDE=0, OD=1 (输入+上拉+禁输出)
+        PADS_BANK0_GPIO(pin) = PADS_IE | PADS_OD | PADS_PUE;
+        // 2. 设置 IO_CTRL: FUNCSEL=5 (SIO/GPIO), 清除所有 override
+        IO_BANK0_GPIO_CTRL(pin) = 5;  // FUNCSEL=5 = SIO (normal GPIO)
     }
 }
 
-static void type_string(const char *str) {
-    while (*str) {
-        type_char(*str);
-        wait_ms(5);
-        str++;
-    }
-}
+// override matrix_init_pins: 先修复 ADC 引脚，再调用默认初始化
+void matrix_init_pins(void) {
+    fix_adc_pins();
 
-static void type_number(uint8_t n) {
-    if (n >= 10) {
-        type_char('0' + n / 10);
-    }
-    type_char('0' + n % 10);
-}
-
-// 启动后自动运行 GPIO 诊断
-void keyboard_post_init_user(void) {
-    // 等 3 秒让用户打开文本编辑器
-    wait_ms(3000);
-
-    type_string("GPIO DIAG");
-    tap_code(KC_ENT);
-    wait_ms(100);
-
-    // 先把所有 30 个 GPIO 设为输入+上拉
-    for (uint8_t i = 0; i < 30; i++) {
-        palSetLineMode(i, PAL_MODE_INPUT_PULLUP);
-    }
-    wait_ms(50);
-
-    // 读取并输出每个 GPIO 状态
-    for (uint8_t i = 0; i < 30; i++) {
-        type_string("GP");
-        type_number(i);
-        type_char(':');
-        uint8_t val = palReadLine(i);
-        type_char(val ? 'H' : 'L');
-        type_char(' ');
-        wait_ms(10);
-
-        if ((i + 1) % 10 == 0) {
-            tap_code(KC_ENT);
-            wait_ms(50);
+    // 复制 QMK 默认的 direct pin 初始化逻辑
+    extern const pin_t direct_pins[MATRIX_ROWS][MATRIX_COLS];
+    for (int row = 0; row < MATRIX_ROWS; row++) {
+        for (int col = 0; col < MATRIX_COLS; col++) {
+            pin_t pin = direct_pins[row][col];
+            if (pin != NO_PIN) {
+                gpio_set_pin_input_high(pin);
+            }
         }
     }
-    tap_code(KC_ENT);
-    type_string("DONE");
-    tap_code(KC_ENT);
 }
 
 enum layers {
