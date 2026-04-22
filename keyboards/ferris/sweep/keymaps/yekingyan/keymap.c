@@ -20,20 +20,83 @@
 #include QMK_KEYBOARD_H
 
 // ==========================================
-// RP2040 ADC 引脚修复
-// GP26-29 上电默认为 ADC 模式，QMK gpio_set_pin_input_high()
-// 可能无法覆盖 ADC 功能复用，导致内部上拉不生效
-// → direct pin 扫描误判为按下（ghost keys: werttttt）
-// 用 QMK 抽象层在 matrix_init 之后再次强制设置
+// GPIO 诊断模式
+// 按下左上角第一个键 (Q 位) 输出所有 GPIO 状态
+// 格式: "GP0:H GP1:H GP2:L ..." (H=高电平 L=低电平)
 // ==========================================
+
+// RP2040 有 GP0-GP29 共 30 个 GPIO
+// 用 ChibiOS PAL 直接读取，绕过 converter 映射
+#include "hal.h"
+
+static void type_char(char c) {
+    if (c >= '0' && c <= '9') {
+        tap_code(KC_0 + (c - '0'));
+    } else if (c >= 'a' && c <= 'z') {
+        tap_code(KC_A + (c - 'a'));
+    } else if (c >= 'A' && c <= 'Z') {
+        register_code(KC_LSFT);
+        tap_code(KC_A + (c - 'A'));
+        unregister_code(KC_LSFT);
+    } else if (c == ':') {
+        register_code(KC_LSFT);
+        tap_code(KC_SCLN);
+        unregister_code(KC_LSFT);
+    } else if (c == ' ') {
+        tap_code(KC_SPC);
+    } else if (c == '\n') {
+        tap_code(KC_ENT);
+    }
+}
+
+static void type_string(const char *str) {
+    while (*str) {
+        type_char(*str);
+        wait_ms(5);
+        str++;
+    }
+}
+
+static void type_number(uint8_t n) {
+    if (n >= 10) {
+        type_char('0' + n / 10);
+    }
+    type_char('0' + n % 10);
+}
+
+// 启动后自动运行 GPIO 诊断
 void keyboard_post_init_user(void) {
-    // Sweep 左手第一行 W/E/R/T 对应 Pro Micro 引脚 F7/F6/F5/F4
-    // converter 映射到 RP2040 GP26/27/28/29（ADC 引脚）
-    // 强制重新设置为 GPIO 输入 + 上拉，覆盖 ADC 默认模式
-    gpio_set_pin_input_high(F4);
-    gpio_set_pin_input_high(F5);
-    gpio_set_pin_input_high(F6);
-    gpio_set_pin_input_high(F7);
+    // 等 3 秒让用户打开文本编辑器
+    wait_ms(3000);
+
+    type_string("GPIO DIAG");
+    tap_code(KC_ENT);
+    wait_ms(100);
+
+    // 先把所有 30 个 GPIO 设为输入+上拉
+    for (uint8_t i = 0; i < 30; i++) {
+        palSetLineMode(i, PAL_MODE_INPUT_PULLUP);
+    }
+    wait_ms(50);
+
+    // 读取并输出每个 GPIO 状态
+    for (uint8_t i = 0; i < 30; i++) {
+        type_string("GP");
+        type_number(i);
+        type_char(':');
+        uint8_t val = palReadLine(i);
+        type_char(val ? 'H' : 'L');
+        type_char(' ');
+        wait_ms(10);
+
+        if ((i + 1) % 10 == 0) {
+            tap_code(KC_ENT);
+            wait_ms(50);
+        }
+    }
+    tap_code(KC_ENT);
+    type_string("DONE");
+    tap_code(KC_ENT);
 }
 
 enum layers {
