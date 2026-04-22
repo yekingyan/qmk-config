@@ -31,7 +31,7 @@
 // ==========================================
 #define COMBO_TERM 50
 #define COMBO_MUST_TAP_PER_COMBO
-#define COMBO_TERM_PER_COMBO
+// COMBO_TERM_PER_COMBO 由 Vial 自动定义，不需要手动设置
 
 // ==========================================
 // Caps Word
