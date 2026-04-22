@@ -19,54 +19,6 @@
 
 #include QMK_KEYBOARD_H
 
-// ==========================================
-// RP2040 ADC 引脚 ghost keys 修复
-// GP26-29 是 ADC 复用引脚，RP2040 上电后 ADC 外设可能
-// 劫持这些引脚的控制权，导致 ChibiOS PAL 设置的上拉不生效。
-// 解决方案：直接写 PADS_BANK0 寄存器，强制启用 IE + PUE，
-// 并关闭 ADC 的 IO_CTRL 覆盖。
-// 在 matrix_init_pins 之前通过 early_hardware_init_pre 执行。
-// ==========================================
-
-// RP2040 寄存器地址
-#define PADS_BANK0_BASE   0x4001C000
-#define IO_BANK0_BASE     0x40014000
-// PADS_BANK0_GPIO26 = BASE + 0x04 + 26*4 = BASE + 0x6C
-#define PADS_BANK0_GPIO(n) (*(volatile uint32_t *)(PADS_BANK0_BASE + 0x04 + (n) * 4))
-// IO_BANK0 GPIO_CTRL: BASE + 0x04 + pin*8
-#define IO_BANK0_GPIO_CTRL(n) (*(volatile uint32_t *)(IO_BANK0_BASE + 0x04 + (n) * 8))
-
-// PADS_BANK0 位定义
-#define PADS_IE   (1 << 6)  // Input Enable
-#define PADS_OD   (1 << 7)  // Output Disable
-#define PADS_PUE  (1 << 3)  // Pull-Up Enable
-#define PADS_PDE  (1 << 2)  // Pull-Down Enable
-
-static void fix_adc_pins(void) {
-    for (uint8_t pin = 26; pin <= 29; pin++) {
-        // 1. 设置 PADS: IE=1, PUE=1, PDE=0, OD=1 (输入+上拉+禁输出)
-        PADS_BANK0_GPIO(pin) = PADS_IE | PADS_OD | PADS_PUE;
-        // 2. 设置 IO_CTRL: FUNCSEL=5 (SIO/GPIO), 清除所有 override
-        IO_BANK0_GPIO_CTRL(pin) = 5;  // FUNCSEL=5 = SIO (normal GPIO)
-    }
-}
-
-// override matrix_init_pins: 先修复 ADC 引脚，再调用默认初始化
-void matrix_init_pins(void) {
-    fix_adc_pins();
-
-    // 复制 QMK 默认的 direct pin 初始化逻辑
-    extern const pin_t direct_pins[MATRIX_ROWS][MATRIX_COLS];
-    for (int row = 0; row < MATRIX_ROWS; row++) {
-        for (int col = 0; col < MATRIX_COLS; col++) {
-            pin_t pin = direct_pins[row][col];
-            if (pin != NO_PIN) {
-                gpio_set_pin_input_high(pin);
-            }
-        }
-    }
-}
-
 enum layers {
     _BASE,
     _NAV,
