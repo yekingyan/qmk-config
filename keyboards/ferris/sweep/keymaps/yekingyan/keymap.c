@@ -82,48 +82,14 @@ bool caps_word_press_user(uint16_t keycode) {
 }
 
 // ==========================================
-// Combos
+// Combos — 由 Vial GUI 管理
 // ==========================================
-// Cradio 键位编号 (34 键):
-//  0  1  2  3  4       5  6  7  8  9
-// 10 11 12 13 14      15 16 17 18 19
-// 20 21 22 23 24      25 26 27 28 29
-//             30 31  32 33
-
-enum combos {
-    COMBO_ESC,
-    COMBO_CAPS_WORD,
-    COMBO_LSHFT,
-    COMBO_FUN,
-    COMBO_MEDIA,
-    COMBO_LENGTH
-};
-uint16_t COMBO_LEN = COMBO_LENGTH;
-
-const uint16_t PROGMEM combo_esc[]       = {KC_S, KC_D, COMBO_END};
-const uint16_t PROGMEM combo_caps_word[] = {KC_F, KC_J, COMBO_END};
-const uint16_t PROGMEM combo_lshft[]     = {KC_J, KC_K, COMBO_END};
-const uint16_t PROGMEM combo_fun[]       = {LT(_NAV, KC_SPC), LT(_NUM, KC_TAB), COMBO_END};
-const uint16_t PROGMEM combo_media[]     = {LT(_SYM, KC_ENT), LT(_MOUSE, KC_BSPC), COMBO_END};
-
-combo_t key_combos[] = {
-    [COMBO_ESC]       = COMBO(combo_esc, KC_ESC),
-    [COMBO_CAPS_WORD] = COMBO(combo_caps_word, CW_TOGG),
-    [COMBO_LSHFT]     = COMBO(combo_lshft, KC_LSFT),
-    [COMBO_FUN]       = COMBO(combo_fun, MO(_FUN)),
-    [COMBO_MEDIA]     = COMBO(combo_media, MO(_MEDIA)),
-};
-
-bool get_combo_must_tap(uint16_t combo_index, combo_t *combo) {
-    switch (combo_index) {
-        case COMBO_ESC:
-        case COMBO_CAPS_WORD:
-        case COMBO_LSHFT:
-            return true;
-        default:
-            return false;
-    }
-}
+// 刷完固件后在 Vial 中配置以下 5 个 combo：
+//   S + D        → ESC
+//   F + J        → CW_TOGG (Caps Word)
+//   J + K        → LSFT
+//   左双拇指      → MO(FUN)    [pos 30 + 31]
+//   右双拇指      → MO(MEDIA)  [pos 32 + 33]
 
 // ==========================================
 // Keymap: 7 层
