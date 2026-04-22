@@ -1,4 +1,4 @@
-name: Build QMK firmware
+name: Build Vial firmware
 
 on: [push, workflow_dispatch]
 
@@ -7,14 +7,50 @@ permissions:
 
 jobs:
   build:
-    name: 'QMK Userspace Build'
-    uses: qmk/.github/.github/workflows/qmk_userspace_build.yml@main
-    with:
-      qmk_repo: qmk/qmk_firmware
-      qmk_ref: master
+    runs-on: ubuntu-latest
 
-  publish:
-    name: 'QMK Userspace Publish'
-    uses: qmk/.github/.github/workflows/qmk_userspace_publish.yml@main
-    if: always() && !cancelled()
-    needs: build
+    steps:
+      - name: Checkout userspace
+        uses: actions/checkout@v4
+
+      - name: Checkout vial-qmk
+        uses: actions/checkout@v4
+        with:
+          repository: vial-kb/vial-qmk
+          ref: vial
+          path: vial-qmk
+          submodules: recursive
+
+      - name: Copy keymap into vial-qmk
+        run: |
+          mkdir -p vial-qmk/keyboards/ferris/sweep/keymaps/yekingyan
+          cp -r keyboards/ferris/sweep/keymaps/yekingyan/* vial-qmk/keyboards/ferris/sweep/keymaps/yekingyan/
+
+      - name: Setup QMK
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install QMK CLI
+        run: |
+          python -m pip install --upgrade pip
+          pip install qmk
+
+      - name: QMK setup
+        run: |
+          cd vial-qmk
+          qmk setup -yes -H .
+
+      - name: Build firmware
+        run: |
+          cd vial-qmk
+          make ferris/sweep:yekingyan
+
+      - name: Upload firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: sweep-vial-firmware
+          path: |
+            vial-qmk/*.hex
+            vial-qmk/*.bin
+            vial-qmk/*.uf2
