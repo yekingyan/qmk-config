@@ -80,7 +80,34 @@ ChibiOS `palSetLineMode(pin, PAL_MODE_INPUT_PULLUP)` 会正确写 PADS 寄存器
 3. **方案 C**：只保留 `mcuconf.h` 的 `RP_ADC_USE_ADC1 FALSE`，去掉 `halconf.h` 覆盖 → 最精简
 4. **硬件兜底**：若以上均不稳定，GP26-29 加 10kΩ 外部上拉电阻
 
-当前状态：**方案 A 待刷机验证**
+当前状态：**方案 A 已验证失败，诊断阶段**
+
+#### 验证记录（2026-04-25）
+
+| 提交 | 方案 | 结果 |
+|------|------|------|
+| `a662878` | 三层全保留（mcuconf+halconf+board_init 寄存器 hack） | ❌ ghost keys 依旧 `werttttt` |
+| `e223220` | + `keyboard_post_init_user` 二次修复 + `send_string("GPIOFIX")` 诊断 | ❌ ghost keys 依旧，GPIOFIX 未观测到（被淹没） |
+| `64580c0` | + 寄存器前后值采集 + 3s 延迟后输出诊断 | ❌ 有 3s 延迟（代码在跑），但诊断字符串未输出（USB 未 ready） |
+| `4077d32` | USB 等待延长到 3s | ❌ 同上，send_string 在 post_init 阶段无法发送 |
+| `df271df` | 诊断移到 `matrix_scan_user` 首次执行（USB 必定 ready） | ❌ 仍只看到 ghost keys，诊断被淹没 |
+
+#### 已确认的事实
+
+1. **代码确实在执行**：`wait_ms()` 延迟可观测（3s/10s 延迟均能感知）
+2. **send_string 在 post_init 阶段不工作**：USB HID 在此阶段未就绪
+3. **send_string 在 matrix_scan 阶段被 ghost keys 淹没**：ghost keys 输出速率太高
+4. **不插 PCB 纯主控裸板也复现**：排除 PCB 走线/焊接问题
+5. **插上 USB 等几秒才出现**：是 QMK matrix scan 触发，非上电瞬间浮空
+6. **持续输出 `t`**：GP29(F4) 持续被读为低电平
+7. **寄存器 hack 写入后 ghost keys 依旧**：根因可能不是 IE bit
+
+#### 待排查方向
+
+- a) `send_string` 诊断被淹没 → 改用 QMK Console (`CONSOLE_ENABLE`) 通过 `dprintf` 输出，用 `qmk console` 或 `hid_listen` 读取
+- b) converter 引脚映射验证 → 确认 `rp2040_ce` 的 F4-F7 是否真的映射到 GP26-29
+- c) 主控硬件问题 → GP26-29 可能有板载下拉电路（ADC 参考电压分压器）
+- d) DIRECT_PINS 极性 → 确认 Sweep 的 direct pin 是低电平有效还是高电平有效
 
 ### 🟡 Converter 口径待收敛
 
