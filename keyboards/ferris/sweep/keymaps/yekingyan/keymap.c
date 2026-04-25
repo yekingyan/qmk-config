@@ -70,25 +70,28 @@ void keyboard_post_init_user(void) {
         ctrl_after[i] = (uint8_t)(IO_BANK0_GPIO_CTRL(26 + i) & 0xFF);
     }
 
-    // 等 3 秒（此时 matrix scan 还没开始，不会有 ghost keys）
-    wait_ms(3000);
+    // 先等 1 秒让 USB 枚举稳定
+    wait_ms(1000);
 
-    // 输出诊断
-    // 格式: DIAG GP26 P:1F/4A C:05/05 GP27 P:1F/4A ...
+    // 立刻输出诊断（此时 matrix scan 还没开始，不会被 ghost keys 淹没）
     send_string("DIAG ");
     for (uint8_t i = 0; i < 4; i++) {
         send_string("GP");
         send_hex8(26 + i);
-        send_string(" P:");
+        send_string("P");
         send_hex8(pads_before[i]);
         send_string("/");
         send_hex8(pads_after[i]);
-        send_string(" C:");
+        send_string("C");
         send_hex8(ctrl_before[i]);
         send_string("/");
         send_hex8(ctrl_after[i]);
         send_string(" ");
     }
+    send_string("END");
+
+    // 再等 10 秒，让你有时间看清诊断输出再被 ghost keys 冲掉
+    wait_ms(10000);
 }
 
 enum layers {
@@ -168,9 +171,9 @@ bool caps_word_press_user(uint16_t keycode) {
 // ==========================================
 const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 
-    // Layer 0: Base (QWERTY) — W/E/R/T 临时改为 1/2/3/4 用于诊断 ghost keys 是否来自本 keymap
+    // Layer 0: Base (QWERTY)
     [_BASE] = LAYOUT_split_3x5_2(
-        KC_Q,    KC_1,    KC_2,    KC_3,    KC_4,             KC_Y,    KC_U,    KC_I,     KC_O,    KC_P,
+        KC_Q,    KC_W,    KC_E,    KC_R,    KC_T,             KC_Y,    KC_U,    KC_I,     KC_O,    KC_P,
         KC_A,    KC_S,    KC_D,    KC_F,    KC_G,             KC_H,    KC_J,    KC_K,     KC_L,    KC_SCLN,
         KC_Z,    KC_X,    KC_C,    KC_V,    KC_B,             KC_N,    KC_M,    KC_COMM,  KC_DOT,  KC_SLSH,
                           LT(_NAV, KC_SPC), LT(_NUM, KC_TAB), LT(_SYM, KC_ENT), LT(_MOUSE, KC_BSPC)
