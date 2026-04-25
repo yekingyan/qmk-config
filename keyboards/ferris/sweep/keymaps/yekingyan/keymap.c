@@ -35,18 +35,60 @@ void board_init(void) {
     }
 }
 
-// keyboard_post_init_user: QMK 初始化链最后一步，所有 matrix init 之后
-// 双保险：再次强制修复 GP26-29，并输出诊断标记
+// 十六进制辅助：把 uint8 转成两个 hex 字符输出
+static void send_hex8(uint8_t val) {
+    static const char hex[] = "0123456789ABCDEF";
+    char buf[3];
+    buf[0] = hex[(val >> 4) & 0xF];
+    buf[1] = hex[val & 0xF];
+    buf[2] = '\0';
+    send_string(buf);
+}
+
+// keyboard_post_init_user: QMK 初始化链最后一步
+// 诊断版：读取 GP26-29 寄存器实际值并输出
 void keyboard_post_init_user(void) {
-    // 再次强制设置 GP26-29
+    // 记录 board_init + matrix_init 之后、二次修复之前的寄存器值
+    uint8_t pads_before[4];
+    uint8_t ctrl_before[4];
+    for (uint8_t i = 0; i < 4; i++) {
+        pads_before[i] = (uint8_t)(PADS_BANK0_GPIO(26 + i) & 0xFF);
+        ctrl_before[i] = (uint8_t)(IO_BANK0_GPIO_CTRL(26 + i) & 0xFF);
+    }
+
+    // 二次强制修复
     for (uint8_t pin = 26; pin <= 29; pin++) {
         IO_BANK0_GPIO_CTRL(pin) = 5;
         PADS_BANK0_GPIO(pin) = (1 << 6) | (1 << 3) | (1 << 1);
     }
-    // 诊断：启动后延迟 2 秒输出标记字符串
-    // 如果看到 "GPIOFIX" 说明代码确实在执行
-    wait_ms(2000);
-    send_string("GPIOFIX");
+
+    // 记录修复后
+    uint8_t pads_after[4];
+    uint8_t ctrl_after[4];
+    for (uint8_t i = 0; i < 4; i++) {
+        pads_after[i] = (uint8_t)(PADS_BANK0_GPIO(26 + i) & 0xFF);
+        ctrl_after[i] = (uint8_t)(IO_BANK0_GPIO_CTRL(26 + i) & 0xFF);
+    }
+
+    // 等 3 秒（此时 matrix scan 还没开始，不会有 ghost keys）
+    wait_ms(3000);
+
+    // 输出诊断
+    // 格式: DIAG GP26 P:1F/4A C:05/05 GP27 P:1F/4A ...
+    send_string("DIAG ");
+    for (uint8_t i = 0; i < 4; i++) {
+        send_string("GP");
+        send_hex8(26 + i);
+        send_string(" P:");
+        send_hex8(pads_before[i]);
+        send_string("/");
+        send_hex8(pads_after[i]);
+        send_string(" C:");
+        send_hex8(ctrl_before[i]);
+        send_string("/");
+        send_hex8(ctrl_after[i]);
+        send_string(" ");
+    }
 }
 
 enum layers {
