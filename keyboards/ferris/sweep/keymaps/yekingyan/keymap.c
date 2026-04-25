@@ -45,53 +45,54 @@ static void send_hex8(uint8_t val) {
     send_string(buf);
 }
 
-// keyboard_post_init_user: QMK 初始化链最后一步
-// 诊断版：读取 GP26-29 寄存器实际值并输出
-void keyboard_post_init_user(void) {
-    // 记录 board_init + matrix_init 之后、二次修复之前的寄存器值
-    uint8_t pads_before[4];
-    uint8_t ctrl_before[4];
-    for (uint8_t i = 0; i < 4; i++) {
-        pads_before[i] = (uint8_t)(PADS_BANK0_GPIO(26 + i) & 0xFF);
-        ctrl_before[i] = (uint8_t)(IO_BANK0_GPIO_CTRL(26 + i) & 0xFF);
-    }
+// 用 static 变量保存寄存器快照，在 post_init 采集，在 matrix_scan 输出
+static uint8_t diag_pads[4];
+static uint8_t diag_ctrl[4];
+static uint8_t diag_pads_after[4];
+static uint8_t diag_ctrl_after[4];
+static bool diag_done = false;
 
+void keyboard_post_init_user(void) {
+    // 采集当前寄存器值（board_init + matrix_init 之后）
+    for (uint8_t i = 0; i < 4; i++) {
+        diag_pads[i] = (uint8_t)(PADS_BANK0_GPIO(26 + i) & 0xFF);
+        diag_ctrl[i] = (uint8_t)(IO_BANK0_GPIO_CTRL(26 + i) & 0xFF);
+    }
     // 二次强制修复
     for (uint8_t pin = 26; pin <= 29; pin++) {
         IO_BANK0_GPIO_CTRL(pin) = 5;
         PADS_BANK0_GPIO(pin) = (1 << 6) | (1 << 3) | (1 << 1);
     }
-
-    // 记录修复后
-    uint8_t pads_after[4];
-    uint8_t ctrl_after[4];
+    // 采集修复后
     for (uint8_t i = 0; i < 4; i++) {
-        pads_after[i] = (uint8_t)(PADS_BANK0_GPIO(26 + i) & 0xFF);
-        ctrl_after[i] = (uint8_t)(IO_BANK0_GPIO_CTRL(26 + i) & 0xFF);
+        diag_pads_after[i] = (uint8_t)(PADS_BANK0_GPIO(26 + i) & 0xFF);
+        diag_ctrl_after[i] = (uint8_t)(IO_BANK0_GPIO_CTRL(26 + i) & 0xFF);
     }
+}
 
-    // 等 3 秒让 USB 枚举完全稳定
-    wait_ms(3000);
-
-    // 立刻输出诊断（此时 matrix scan 还没开始，不会被 ghost keys 淹没）
-    send_string("DIAG ");
-    for (uint8_t i = 0; i < 4; i++) {
-        send_string("GP");
-        send_hex8(26 + i);
-        send_string("P");
-        send_hex8(pads_before[i]);
-        send_string("/");
-        send_hex8(pads_after[i]);
-        send_string("C");
-        send_hex8(ctrl_before[i]);
-        send_string("/");
-        send_hex8(ctrl_after[i]);
-        send_string(" ");
+// matrix_scan_user: 每次扫描循环调用，USB 此时已 ready
+// 第一次执行时输出诊断，之后不再输出
+void matrix_scan_user(void) {
+    if (!diag_done) {
+        diag_done = true;
+        // 等 2 秒确保 USB HID ready
+        wait_ms(2000);
+        send_string("DIAG ");
+        for (uint8_t i = 0; i < 4; i++) {
+      send_string("GP");
+            send_hex8(26 + i);
+            send_string("P");
+            send_hex8(diag_pads[i]);
+            send_string("/");
+            send_hex8(diag_pads_after[i]);
+            send_string("C");
+            send_hex8(diag_ctrl[i]);
+            send_string("/");
+            send_hex8(diag_ctrl_after[i]);
+            send_string(" ");
+        }
+        send_string("END");
     }
-    send_string("END");
-
-    // 再等 10 秒，让你有时间看清诊断输出再被 ghost keys 冲掉
-    wait_ms(10000);
 }
 
 enum layers {
