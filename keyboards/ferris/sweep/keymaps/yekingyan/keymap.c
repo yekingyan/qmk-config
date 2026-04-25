@@ -23,8 +23,7 @@
 // 硬件 reset 后 PADS_BANK0 默认值 0x1F，IE bit (bit6) = 0，输入禁用
 // ChibiOS PAL 的 palSetLineMode(INPUT_PULLUP) 不会设置 IE bit
 // 必须在 matrix_init 之前手动启用
-#define PADS_BANK0_BASE   0x4001C000
-#define IO_BANK0_BASE     0x40014000
+// 注意：PADS_BANK0_BASE / IO_BANK0_BASE 由 pico-sdk 提供，不重复定义
 #define PADS_BANK0_GPIO(n) (*(volatile uint32_t *)(PADS_BANK0_BASE + 0x04 + (n) * 4))
 #define IO_BANK0_GPIO_CTRL(n) (*(volatile uint32_t *)(IO_BANK0_BASE + 0x04 + (n) * 8))
 
