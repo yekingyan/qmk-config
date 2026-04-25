@@ -27,14 +27,26 @@
 #define PADS_BANK0_GPIO(n) (*(volatile uint32_t *)(PADS_BANK0_BASE + 0x04 + (n) * 4))
 #define IO_BANK0_GPIO_CTRL(n) (*(volatile uint32_t *)(IO_BANK0_BASE + 0x04 + (n) * 8))
 
-// QMK early init hook，在 ChibiOS 初始化完成后、matrix init 之前执行
+// board_init: ChibiOS halInit() 内部调用，最早期修复
 void board_init(void) {
     for (uint8_t pin = 26; pin <= 29; pin++) {
-        // FUNCSEL=5 (SIO/GPIO)，踢掉 ADC 复用
         IO_BANK0_GPIO_CTRL(pin) = 5;
-        // IE=1 + PUE=1 + SCHMITT=1，启用输入 + 上拉 + 施密特触发
         PADS_BANK0_GPIO(pin) = (1 << 6) | (1 << 3) | (1 << 1);
     }
+}
+
+// keyboard_post_init_user: QMK 初始化链最后一步，所有 matrix init 之后
+// 双保险：再次强制修复 GP26-29，并输出诊断标记
+void keyboard_post_init_user(void) {
+    // 再次强制设置 GP26-29
+    for (uint8_t pin = 26; pin <= 29; pin++) {
+        IO_BANK0_GPIO_CTRL(pin) = 5;
+        PADS_BANK0_GPIO(pin) = (1 << 6) | (1 << 3) | (1 << 1);
+    }
+    // 诊断：启动后延迟 2 秒输出标记字符串
+    // 如果看到 "GPIOFIX" 说明代码确实在执行
+    wait_ms(2000);
+    send_string("GPIOFIX");
 }
 
 enum layers {
