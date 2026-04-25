@@ -70,8 +70,8 @@ void keyboard_post_init_user(void) {
         ctrl_after[i] = (uint8_t)(IO_BANK0_GPIO_CTRL(26 + i) & 0xFF);
     }
 
-    // 先等 1 秒让 USB 枚举稳定
-    wait_ms(1000);
+    // 等 3 秒让 USB 枚举完全稳定
+    wait_ms(3000);
 
     // 立刻输出诊断（此时 matrix scan 还没开始，不会被 ghost keys 淹没）
     send_string("DIAG ");
