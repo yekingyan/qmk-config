@@ -2,16 +2,6 @@
     "manufacturer": "YeKingYan",
     "keyboard_name": "Dolphin52",
     "maintainer": "yekingyan",
-    "bootloader": "rp2040",
-    "features": {
-        "bootmagic": true,
-        "extrakey": true,
-        "mousekey": true
-    },
-    "processor": "RP2040",
-    "split": {
-        "enabled": true
-    },
     "url": "",
     "usb": {
         "device_version": "0.0.1",
