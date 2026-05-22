@@ -21,12 +21,12 @@ jobs:
           path: vial-qmk
           submodules: recursive
 
-      - name: Copy keymap into vial-qmk
+      - name: Copy keyboard definitions into vial-qmk
         run: |
-          mkdir -p vial-qmk/keyboards/ferris/sweep/keymaps/yekingyan
-          cp -r keyboards/ferris/sweep/keymaps/yekingyan/* vial-qmk/keyboards/ferris/sweep/keymaps/yekingyan/
+          # Dolphin52 (full keyboard definition)
+          cp -r keyboards/dolphin52 vial-qmk/keyboards/dolphin52
 
-      - name: Setup QMK
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -41,16 +41,14 @@ jobs:
           cd vial-qmk
           qmk setup --yes --home .
 
-      - name: Build firmware
+      - name: Build Dolphin52 firmware
         run: |
           cd vial-qmk
-          make ferris/sweep:yekingyan
+          make dolphin52:vial
 
       - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
-          name: sweep-vial-firmware
+          name: dolphin52-vial-firmware
           path: |
-            vial-qmk/*.hex
-            vial-qmk/*.bin
             vial-qmk/*.uf2
