@@ -46,6 +46,9 @@ layer_state_t layer_state_set_user(layer_state_t state) {
         unregister_code(KC_LALT);
         sw_app_active = false;
     }
+    // 双拇指切层: 左 Space+Tab -> Fun, 右 Enter+Bspc -> Media
+    state = update_tri_layer_state(state, _NAV, _NUM, _FUN);
+    state = update_tri_layer_state(state, _SYM, _MOUSE, _MEDIA);
     return state;
 }
 
@@ -77,13 +80,13 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 
     [_BASE] = LAYOUT(
         // 数字行 (外围)
-        KC_GRV,  KC_1,    KC_2,    KC_3,    KC_4,    KC_5,       KC_6,    KC_7,    KC_8,    KC_9,    KC_0,    KC_MINS,
-        // Q 行: 外围Tab + 核心5 | 核心5 + 外围'
-        KC_TAB,  KC_Q,    KC_W,    KC_E,    KC_R,    KC_T,       KC_Y,    KC_U,    KC_I,    KC_O,    KC_P,    KC_QUOT,
+        KC_ESC,  KC_1,    KC_2,    KC_3,    KC_4,    KC_5,       KC_6,    KC_7,    KC_8,    KC_9,    KC_0,    KC_MINS,
+        // Q 行: 外围~ + 核心5 | 核心5 + 外围[
+        KC_GRV,  KC_Q,    KC_W,    KC_E,    KC_R,    KC_T,       KC_Y,    KC_U,    KC_I,    KC_O,    KC_P,    KC_LBRC,
         // A 行: 外围LShift + 核心5 | 核心5 + 外围'
-        KC_LSFT, KC_A,    KC_S,    KC_D,    KC_F,    KC_G,       KC_H,    KC_J,    KC_K,    KC_L,    KC_SCLN, KC_RSFT,
-        // Z 行: 外围LCtrl + 核心5 | 核心5 + 外围RShift
-        KC_LCTL, KC_Z,    KC_X,    KC_C,    KC_V,    KC_B,       KC_N,    KC_M,    KC_COMM, KC_DOT,  KC_SLSH, KC_BSLS,
+        KC_LSFT, KC_A,    KC_S,    KC_D,    KC_F,    KC_G,       KC_H,    KC_J,    KC_K,    KC_L,    KC_SCLN, KC_QUOT,
+        // Z 行: 外围LCtrl + 核心5 | 核心5 + 外围RAlt
+        KC_LCTL, KC_Z,    KC_X,    KC_C,    KC_V,    KC_B,       KC_N,    KC_M,    KC_COMM, KC_DOT,  KC_SLSH, KC_RALT,
         // 拇指 (核心)
         LT(_NAV, KC_SPC), LT(_NUM, KC_TAB),                      LT(_SYM, KC_ENT), LT(_MOUSE, KC_BSPC)
     ),
@@ -121,7 +124,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
     ),
 
     [_FUN] = LAYOUT(
-        _______, _______, _______, _______, _______, _______,    _______, _______, _______, _______, _______, _______,
+        _______, _______, _______, _______, _______, _______,    _______, _______, _______, _______, _______, QK_BOOT,
         _______, KC_CANCEL,_______,_______,  _______, _______,    _______, KC_F7,   KC_F8,   KC_F9,   KC_F12,  _______,
         _______, OSM(MOD_LGUI),OSM(MOD_LALT),OSM(MOD_LCTL),OSM(MOD_LSFT),_______, _______,KC_F4,KC_F5,KC_F6,KC_F11,_______,
         _______, _______, _______, _______, _______, _______,    _______, KC_F1,   KC_F2,   KC_F3,   KC_F10,  _______,
