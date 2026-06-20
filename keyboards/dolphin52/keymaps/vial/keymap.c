@@ -22,9 +22,26 @@ enum layers {
 
 enum custom_keycodes {
     SW_APP = SAFE_RANGE,
+    C_LEFT,   // Ctrl+Left  (按词左跳)
+    C_DN,     // Ctrl+Down  (Vim 半页下翻)
+    C_UP,     // Ctrl+Up    (Vim 半页上翻)
+    C_RGHT,   // Ctrl+Right (按词右跳)
 };
 
 static bool sw_app_active = false;
+
+// 只对拇指 LT 键启用 hold-on-other-key-press，OSM 键不受影响 (规避 QMK#20269)
+bool get_hold_on_other_key_press(uint16_t keycode, keyrecord_t *record) {
+    switch (keycode) {
+        case LT(_NAV, KC_SPC):
+        case LT(_NUM, KC_TAB):
+        case LT(_SYM, KC_ENT):
+        case LT(_MOUSE, KC_BSPC):
+            return true;
+        default:
+            return false;
+    }
+}
 
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     switch (keycode) {
@@ -35,6 +52,46 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
                     register_code(KC_LALT);
                 }
                 tap_code(KC_TAB);
+            }
+            return false;
+
+        case C_LEFT:
+            if (record->event.pressed) {
+                register_code(KC_LCTL);
+                register_code(KC_LEFT);
+            } else {
+                unregister_code(KC_LEFT);
+                unregister_code(KC_LCTL);
+            }
+            return false;
+
+        case C_DN:
+            if (record->event.pressed) {
+                register_code(KC_LCTL);
+                register_code(KC_D);
+            } else {
+                unregister_code(KC_D);
+                unregister_code(KC_LCTL);
+            }
+            return false;
+
+        case C_UP:
+            if (record->event.pressed) {
+                register_code(KC_LCTL);
+                register_code(KC_U);
+            } else {
+                unregister_code(KC_U);
+                unregister_code(KC_LCTL);
+            }
+            return false;
+
+        case C_RGHT:
+            if (record->event.pressed) {
+                register_code(KC_LCTL);
+                register_code(KC_RGHT);
+            } else {
+                unregister_code(KC_RGHT);
+                unregister_code(KC_LCTL);
             }
             return false;
     }
@@ -93,7 +150,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 
     [_NAV] = LAYOUT(
         KC_ESC,  KC_F1,   KC_F2,   KC_F3,   KC_F4,   KC_F5,      KC_F6,   KC_F7,   KC_F8,   KC_F9,   KC_F10,  KC_F11,
-        _______, SW_APP,  S(KC_TAB),KC_ENT,  KC_LSFT, KC_BSPC,    C(KC_LEFT),C(KC_D),C(KC_U),C(KC_RGHT),KC_DEL,KC_F12,
+        _______, SW_APP,  S(KC_TAB),KC_ENT,  KC_LSFT, KC_BSPC,    C_LEFT, C_DN, C_UP, C_RGHT, KC_DEL, KC_F12,
         _______, OSM(MOD_LGUI),OSM(MOD_LALT),OSM(MOD_LCTL),OSM(MOD_LSFT),CW_TOGG, KC_LEFT,KC_DOWN,KC_UP,KC_RGHT,C(KC_DEL),_______,
         _______, C(KC_Z), C(KC_X), C(KC_C), C(KC_V), _______,    KC_HOME, KC_PGDN, KC_PGUP, KC_END,  C(KC_BSPC),_______,
         _______, _______, _______,                                 _______, _______
