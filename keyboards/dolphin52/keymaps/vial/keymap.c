@@ -30,19 +30,6 @@ enum custom_keycodes {
 
 static bool sw_app_active = false;
 
-// 只对拇指 LT 键启用 hold-on-other-key-press，OSM 键不受影响 (规避 QMK#20269)
-bool get_hold_on_other_key_press(uint16_t keycode, keyrecord_t *record) {
-    switch (keycode) {
-        case LT(_NAV, KC_SPC):
-        case LT(_NUM, KC_TAB):
-        case LT(_SYM, KC_ENT):
-        case LT(_MOUSE, KC_BSPC):
-            return true;
-        default:
-            return false;
-    }
-}
-
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     switch (keycode) {
         case SW_APP:
