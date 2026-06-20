@@ -87,8 +87,8 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
         KC_LSFT, KC_A,    KC_S,    KC_D,    KC_F,    KC_G,       KC_H,    KC_J,    KC_K,    KC_L,    KC_SCLN, KC_QUOT,
         // Z 行: 外围LCtrl + 核心5 | 核心5 + 外围RAlt
         KC_LCTL, KC_Z,    KC_X,    KC_C,    KC_V,    KC_B,       KC_N,    KC_M,    KC_COMM, KC_DOT,  KC_SLSH, KC_RALT,
-        // 拇指 (核心)
-        LT(_NAV, KC_SPC), LT(_NUM, KC_TAB),                      LT(_SYM, KC_ENT), LT(_MOUSE, KC_BSPC)
+        // 拇指 (核心) + GP23 测试键
+        LT(_NAV, KC_SPC), LT(_NUM, KC_TAB), KC_9,                LT(_SYM, KC_ENT), LT(_MOUSE, KC_BSPC)
     ),
 
     [_NAV] = LAYOUT(
@@ -96,7 +96,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
         _______, SW_APP,  S(KC_TAB),KC_ENT,  KC_LSFT, KC_BSPC,    C(KC_LEFT),C(KC_D),C(KC_U),C(KC_RGHT),KC_DEL,KC_F12,
         _______, OSM(MOD_LGUI),OSM(MOD_LALT),OSM(MOD_LCTL),OSM(MOD_LSFT),CW_TOGG, KC_LEFT,KC_DOWN,KC_UP,KC_RGHT,C(KC_DEL),_______,
         _______, C(KC_Z), C(KC_X), C(KC_C), C(KC_V), _______,    KC_HOME, KC_PGDN, KC_PGUP, KC_END,  C(KC_BSPC),_______,
-        _______, _______,                                          _______, _______
+        _______, _______, _______,                                 _______, _______
     ),
 
     [_NUM] = LAYOUT(
@@ -104,7 +104,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
         _______, _______, _______, _______, _______, _______,    KC_DOT,  KC_7,    KC_8,    KC_9,    KC_MINS, _______,
         _______, OSM(MOD_LGUI),OSM(MOD_LALT),OSM(MOD_LCTL),OSM(MOD_LSFT),KC_BSPC, _______,KC_4,KC_5,KC_6,KC_PLUS,_______,
         _______, _______, KC_SLSH, KC_ASTR, KC_EQL,  _______,    _______, KC_1,    KC_2,    KC_3,    _______, _______,
-        _______, _______,                                          _______, KC_0
+        _______, _______, _______,                                 _______, KC_0
     ),
 
     [_SYM] = LAYOUT(
@@ -112,7 +112,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
         _______, KC_EXLM, KC_AT,   KC_HASH, KC_DLR,  KC_PERC,    KC_CIRC, KC_AMPR, KC_ASTR, KC_EQL,  KC_QUOT, _______,
         _______, KC_LPRN, KC_LCBR, KC_LBRC, KC_LT,   KC_UNDS,    KC_PIPE, OSM(MOD_LSFT),OSM(MOD_RCTL),OSM(MOD_RALT),OSM(MOD_RGUI),_______,
         _______, KC_RPRN, KC_RCBR, KC_RBRC, KC_GT,   KC_GRV,     KC_BSLS, KC_TILD, KC_COLN, KC_DQUO, KC_QUES, _______,
-        _______, _______,                                          _______, _______
+        _______, _______, _______,                                 _______, _______
     ),
 
     [_MOUSE] = LAYOUT(
@@ -120,7 +120,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
         _______, C(KC_Z), C(KC_Y), C(G(KC_LEFT)),C(G(KC_RGHT)),_______, _______, _______, _______, _______, _______, _______,
         _______, _______, KC_MS_L, KC_MS_U, KC_MS_D, KC_MS_R,    _______, OSM(MOD_LSFT),OSM(MOD_RCTL),OSM(MOD_RALT),OSM(MOD_RGUI),_______,
         _______, _______, KC_WH_L, KC_WH_U, KC_WH_D, KC_WH_R,    _______, _______, _______, _______, _______, _______,
-        KC_BTN2, KC_BTN1,                                          _______, _______
+        KC_BTN2, KC_BTN1, _______,                                 _______, _______
     ),
 
     [_FUN] = LAYOUT(
@@ -128,7 +128,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
         _______, KC_CANCEL,_______,_______,  _______, _______,    _______, KC_F7,   KC_F8,   KC_F9,   KC_F12,  _______,
         _______, OSM(MOD_LGUI),OSM(MOD_LALT),OSM(MOD_LCTL),OSM(MOD_LSFT),_______, _______,KC_F4,KC_F5,KC_F6,KC_F11,_______,
         _______, _______, _______, _______, _______, _______,    _______, KC_F1,   KC_F2,   KC_F3,   KC_F10,  _______,
-        _______, _______,                                          _______, _______
+        _______, _______, _______,                                 _______, _______
     ),
 
     [_MEDIA] = LAYOUT(
@@ -136,6 +136,6 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
         _______, _______, _______, _______, _______, _______,    _______, _______, _______, _______, _______, _______,
         _______, _______, KC_MPRV, KC_VOLD, KC_VOLU, KC_MNXT,    _______, OSM(MOD_LSFT),OSM(MOD_RCTL),OSM(MOD_RALT),OSM(MOD_RGUI),_______,
         _______, _______, KC_MUTE, KC_BRID, KC_BRIU, KC_MPLY,    _______, _______, _______, _______, _______, _______,
-        _______, _______,                                          _______, _______
+        _______, _______, _______,                                 _______, _______
     ),
 };
