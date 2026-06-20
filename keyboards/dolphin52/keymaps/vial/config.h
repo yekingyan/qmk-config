@@ -13,11 +13,8 @@
 // Tap-Hold
 #define TAPPING_TERM 200
 #define PERMISSIVE_HOLD
-#define HOLD_ON_OTHER_KEY_PRESS_PER_KEY
+// HOLD_ON_OTHER_KEY_PRESS_PER_KEY 由 QMK 构建系统定义
 #define QUICK_TAP_TERM 150
-
-// 防止 OSM 被 LT keyup 吞掉 (QMK#14932)
-#define TAP_CODE_DELAY 10
 
 // One Shot
 #define ONESHOT_TIMEOUT 1000
