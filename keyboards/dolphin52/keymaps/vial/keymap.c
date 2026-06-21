@@ -117,12 +117,7 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
                              (keycode == SK_LALT) ? MOD_BIT(KC_LALT) :
                              (keycode == SK_LCTL) ? MOD_BIT(KC_LCTL) :
                                                     MOD_BIT(KC_LSFT);
-                // 同键再按=取消，否则累加到粘滞集
-                if (sticky_mods & mod) {
-                    sticky_mod_del(mod);
-                } else {
-                    sticky_mod_add(mod);
-                }
+                sticky_mod_add(mod);  // 累加，重复按等同刷新计时
             }
             return false;
     }
