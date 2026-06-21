@@ -118,9 +118,12 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     }
 
     // 非修饰键松开时释放所有粘滞修饰 (chain 消费)
-    // C_LEFT..C_RGHT 自己管理 Ctrl，不消费粘滞修饰
-    if (sticky_mods && !(keycode >= SK_LGUI && keycode <= SK_LSFT)
-        && !(keycode >= C_LEFT && keycode <= C_RGHT)) {
+    // 排除: SK_* 自身、C_* 和弦、LT/MO 等层切换键
+    if (sticky_mods
+        && !(keycode >= SK_LGUI && keycode <= SK_LSFT)
+        && !(keycode >= C_LEFT && keycode <= C_RGHT)
+        && !IS_QK_LAYER_TAP(keycode)
+        && !IS_QK_MOMENTARY(keycode)) {
         if (!record->event.pressed) {
             sticky_mod_clear();
         }
