@@ -314,32 +314,18 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
     ),
 };
 
-// Vial combo 数组 (vial.c 中定义，此处引用以手动刷新)
-extern combo_t key_combos[];
-extern uint16_t key_combos_keys[][5];
-
-// 默认 Combo: S+D=Esc, J+K=LShift, F+J=CapsWord
-void keyboard_post_init_user(void) {
-    static const uint16_t defaults[][3] = {
-        {KC_S, KC_D, COMBO_END},  // → Esc
-        {KC_J, KC_K, COMBO_END},  // → LShift
-        {KC_F, KC_J, COMBO_END},  // → CapsWord
+// 默认 Combo (首次刷机/重置 EEPROM 时写入 Vial，之后由 Vial GUI 接管)
+void eeconfig_init_user(void) {
+    static const struct { uint16_t keys[4]; uint16_t output; } defaults[] = {
+        {{KC_S, KC_D}, KC_ESC},
+        {{KC_J, KC_K}, KC_LSFT},
+        {{KC_F, KC_J}, CW_TOGG},
     };
-    static const uint16_t outputs[] = { KC_ESC, KC_LSFT, CW_TOGG };
-
     vial_combo_entry_t entry;
     for (int i = 0; i < 3; i++) {
-        // 读取 EEPROM，如果未设置则写入默认值
-        dynamic_keymap_get_combo(i, &entry);
-        if (entry.output == 0) {
-            memset(&entry, 0, sizeof(entry));
-            memcpy(entry.input, defaults[i], sizeof(entry.input));
-            entry.output = outputs[i];
-            dynamic_keymap_set_combo(i, &entry);
-        }
-        // 刷新内存中的 combo 数组 (keyboard_post_init 在 reload_combo 之后执行)
-        memcpy(key_combos_keys[i], entry.input, sizeof(entry.input));
-        key_combos[i].keys   = key_combos_keys[i];
-        key_combos[i].keycode = entry.output;
+        memset(&entry, 0, sizeof(entry));
+        memcpy(entry.input, defaults[i].keys, sizeof(defaults[i].keys));
+        entry.output = defaults[i].output;
+        dynamic_keymap_set_combo(i, &entry);
     }
 }
