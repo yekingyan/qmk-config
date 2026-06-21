@@ -36,20 +36,31 @@ static bool sw_app_active = false;
 
 // 自定义粘滞修饰 (替代内置 OSM，规避 LT 层干扰)
 // 支持 chain 模式: 多个修饰键累加，非修饰键松开时全部释放
+// 用 register_code(KC_*) 而非 register_mods()，确保 IME 能识别 LSHFT 切换中英文
 static uint8_t  sticky_mods = 0;
 static uint16_t sticky_deadline = 0;
 
 #define STICKY_TIMEOUT_MS 1000  // 1s 超时自动释放
 
+static uint8_t sticky_mod_to_kc(uint8_t mod) {
+    if (mod & MOD_BIT(KC_LSFT)) return KC_LSFT;
+    if (mod & MOD_BIT(KC_LCTL)) return KC_LCTL;
+    if (mod & MOD_BIT(KC_LALT)) return KC_LALT;
+    if (mod & MOD_BIT(KC_LGUI)) return KC_LGUI;
+    return KC_NO;
+}
+
 static void sticky_mod_add(uint8_t mod) {
     sticky_mods |= mod;
-    register_mods(mod);
+    register_code(sticky_mod_to_kc(mod));
     sticky_deadline = timer_read() + STICKY_TIMEOUT_MS;
 }
 
 static void sticky_mod_clear(void) {
     if (sticky_mods) {
-        unregister_mods(sticky_mods);
+        for (uint8_t m = sticky_mods; m; m &= (m - 1)) {
+            unregister_code(sticky_mod_to_kc(m & -m));
+        }
         sticky_mods = 0;
     }
 }
