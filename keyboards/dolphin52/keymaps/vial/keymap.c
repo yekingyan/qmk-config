@@ -47,11 +47,6 @@ static void sticky_mod_add(uint8_t mod) {
     sticky_deadline = timer_read() + STICKY_TIMEOUT_MS;
 }
 
-static void sticky_mod_del(uint8_t mod) {
-    sticky_mods &= ~mod;
-    unregister_mods(mod);
-}
-
 static void sticky_mod_clear(void) {
     if (sticky_mods) {
         unregister_mods(sticky_mods);
