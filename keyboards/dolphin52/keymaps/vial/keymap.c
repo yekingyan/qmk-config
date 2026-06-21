@@ -314,18 +314,28 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
     ),
 };
 
-// 默认 Combo (首次刷机/重置 EEPROM 时写入 Vial，之后由 Vial GUI 接管)
-void eeconfig_init_user(void) {
-    static const struct { uint16_t keys[4]; uint16_t output; } defaults[] = {
-        {{KC_S, KC_D}, KC_ESC},
-        {{KC_J, KC_K}, KC_LSFT},
-        {{KC_F, KC_J}, CW_TOGG},
+// 默认 Combo: 每次启动检查，未设置则写入 EEPROM 并刷新 Vial 内存
+extern combo_t key_combos[];
+extern uint16_t key_combos_keys[][5];
+
+void keyboard_post_init_user(void) {
+    static const uint16_t keys[][3] = {
+        {KC_S, KC_D, COMBO_END}, {KC_J, KC_K, COMBO_END}, {KC_F, KC_J, COMBO_END},
     };
+    static const uint16_t outputs[] = { KC_ESC, KC_LSFT, CW_TOGG };
+
     vial_combo_entry_t entry;
     for (int i = 0; i < 3; i++) {
-        memset(&entry, 0, sizeof(entry));
-        memcpy(entry.input, defaults[i].keys, sizeof(defaults[i].keys));
-        entry.output = defaults[i].output;
-        dynamic_keymap_set_combo(i, &entry);
+        dynamic_keymap_get_combo(i, &entry);
+        if (entry.output == 0) {
+            memset(&entry, 0, sizeof(entry));
+            memcpy(entry.input, keys[i], sizeof(entry.input));
+            entry.output = outputs[i];
+            dynamic_keymap_set_combo(i, &entry);
+        }
+        // 刷新 Vial 内存数组 (已于 reload_combo 后执行)
+        memcpy(key_combos_keys[i], entry.input, sizeof(entry.input));
+        key_combos[i].keys    = key_combos_keys[i];
+        key_combos[i].keycode  = entry.output;
     }
 }
