@@ -19,7 +19,9 @@
 > 34 键核心区必须与 `~/projects/zmk-config/docs/keymap-design.md` 完全一致。
 
 - **Nav 层右手 Q 行**：`C(←) C-D C-U C(→) DEL`（按词跳跃），用自定义键码 `C_LEFT/C_DN/C_UP/C_RGHT` 显式 register/unregister，不用 QMK `C()` 宏
-- **OSM 粘滞修饰**：QMK 内置 `OSM()` 在 LT 激活层上有 bug（独立按键发送），改用自定义 `SK_LGUI/LALT/LCTL/LSFT`，支持 chain 累加 + 1s 超时释放
+- **OSM 粘滞修饰**：QMK 内置 `OSM()` 在 LT 激活层上有 bug（独立按键发送），改用自定义 `SK_LGUI/LALT/LCTL/LSFT`
+  - 行为对齐 ZMK `&skn`：chain 累加（多个修饰可叠加），1s 超时释放，重复按只刷新计时不 toggle-off
+  - 左手 Nav 层 A/S/D/F = Win/Alt/Ctrl/Shift 粘滞；右手 Sym/Mouse/Media 层镜像区同样
 - **Combo**：S+D=Esc、J+K=LShift、F+J=CapsWord，通过 `eeconfig_init_user()` 写入 Vial EEPROM 默认值（F+J 跨手可能不触发，备用 Nav 层 G 位 CW_TOGG）
 - **Bootloader**：_FUN 层左上 ESC 和右上 `-` 都是 `QK_BOOTLOADER`（vial-qmk 兼容名），仅左手也能进刷机
 - **Tapping 配置**：`PERMISSIVE_HOLD` + `TAPPING_TERM 200` + `QUICK_TAP_TERM 150`，全局启用，稳定 LT 判定
