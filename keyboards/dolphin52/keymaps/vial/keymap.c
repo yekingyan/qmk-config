@@ -183,3 +183,20 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
         _______, _______, _______,                                 _______, _______
     ),
 };
+
+// 默认 Combo (S+D=Esc, J+K=LShift)，写入 Vial EEPROM
+void eeconfig_init_user(void) {
+    vial_combo_entry_t combo;
+    // S+D → ESC
+    memset(&combo, 0, sizeof(combo));
+    combo.input[0] = KC_S;
+    combo.input[1] = KC_D;
+    combo.output = KC_ESC;
+    dynamic_keymap_set_combo(0, &combo);
+    // J+K → LShift
+    memset(&combo, 0, sizeof(combo));
+    combo.input[0] = KC_J;
+    combo.input[1] = KC_K;
+    combo.output = KC_LSFT;
+    dynamic_keymap_set_combo(1, &combo);
+}
