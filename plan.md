@@ -14,6 +14,27 @@
 - [x] GitHub Actions 云编译
 - [ ] 刷机验证
 
+### 键位需求（对齐 zmk-config 设计）
+
+> 34 键核心区必须与 `~/projects/zmk-config/docs/keymap-design.md` 完全一致。
+
+- **Nav 层右手 Q 行**：`C(←) C-D C-U C(→) DEL`（按词跳跃），用自定义键码 `C_LEFT/C_DN/C_UP/C_RGHT` 显式 register/unregister，不用 QMK `C()` 宏
+- **OSM 粘滞修饰**：QMK 内置 `OSM()` 在 LT 激活层上有 bug（独立按键发送），改用自定义 `SK_LGUI/LALT/LCTL/LSFT`，支持 chain 累加 + 1s 超时释放
+- **Combo**：S+D=Esc、J+K=LShift、F+J=CapsWord，通过 `eeconfig_init_user()` 写入 Vial EEPROM 默认值（F+J 跨手可能不触发，备用 Nav 层 G 位 CW_TOGG）
+- **Bootloader**：_FUN 层左上 ESC 和右上 `-` 都是 `QK_BOOTLOADER`（vial-qmk 兼容名），仅左手也能进刷机
+- **Tapping 配置**：`PERMISSIVE_HOLD` + `TAPPING_TERM 200` + `QUICK_TAP_TERM 150`，全局启用，稳定 LT 判定
+
+### 已知坑
+
+| 问题 | 根因 | 方案 |
+|------|------|------|
+| OSM 被 LT 松手吞掉 | QMK#20269，tap/hold 共用代码 | 自定义 SK_* 替代 |
+| `HOLD_ON_OTHER_KEY_PRESS` 重定义 | QMK 构建系统自动注入 | config.h 不定义，靠 PERMISSIVE_HOLD |
+| `get_hold_on_other_key_press` 重复定义 | `qmk_settings.c` 非 weak | 不定义此函数 |
+| `combo_t key_combos` 重复定义 | `vial.c` 已定义 | 用 `eeconfig_init_user()` 写默认值 |
+| `F+J` combo 跨手可能不触发 | 串口分体各半独立扫描 | 提供 Nav 层 G 位 CW_TOGG 备用 |
+| `QK_BOOT` 别名不存在 | vial-qmk 版本较老 | 用 `QK_BOOTLOADER` |
+
 ### 文件结构
 
 ```
