@@ -35,21 +35,28 @@ enum custom_keycodes {
 static bool sw_app_active = false;
 
 // 自定义粘滞修饰 (替代内置 OSM，规避 LT 层干扰)
-static uint8_t  sticky_mod = 0;
+// 支持 chain 模式: 多个修饰键累加，非修饰键松开时全部释放
+static uint8_t  sticky_mods = 0;
 static uint16_t sticky_deadline = 0;
 
-#define STICKY_TIMEOUT_MS 3000  // 3s 超时自动释放
+#define STICKY_TIMEOUT_MS 1000  // 1s 超时自动释放
 
-static void sticky_mod_set(uint8_t mod) {
-    if (sticky_mod) unregister_mods(sticky_mod);
+static void sticky_mod_add(uint8_t mod) {
+    sticky_mods |= mod;
     register_mods(mod);
-    sticky_mod = mod;
     sticky_deadline = timer_read() + STICKY_TIMEOUT_MS;
 }
 
+static void sticky_mod_del(uint8_t mod) {
+    sticky_mods &= ~mod;
+    unregister_mods(mod);
+}
+
 static void sticky_mod_clear(void) {
-    if (sticky_mod) unregister_mods(sticky_mod);
-    sticky_mod = 0;
+    if (sticky_mods) {
+        unregister_mods(sticky_mods);
+        sticky_mods = 0;
+    }
 }
 
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
@@ -110,18 +117,19 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
                              (keycode == SK_LALT) ? MOD_BIT(KC_LALT) :
                              (keycode == SK_LCTL) ? MOD_BIT(KC_LCTL) :
                                                     MOD_BIT(KC_LSFT);
-                // 同键再次按 = 取消粘滞
-                if (sticky_mod == mod) {
-                    sticky_mod_clear();
+                // 同键再按=取消，否则累加到粘滞集
+                if (sticky_mods & mod) {
+                    sticky_mod_del(mod);
                 } else {
-                    sticky_mod_set(mod);
+                    sticky_mod_add(mod);
                 }
             }
             return false;
     }
 
-    // 粘滞修饰消费: 非修饰键按下后，在松开时释放修饰键 (chain 模式)
-    if (sticky_mod && !(keycode >= SK_LGUI && keycode <= SK_LSFT)
+    // 非修饰键松开时释放所有粘滞修饰 (chain 消费)
+    // C_LEFT..C_RGHT 自己管理 Ctrl，不消费粘滞修饰
+    if (sticky_mods && !(keycode >= SK_LGUI && keycode <= SK_LSFT)
         && !(keycode >= C_LEFT && keycode <= C_RGHT)) {
         if (!record->event.pressed) {
             sticky_mod_clear();
@@ -131,8 +139,8 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
 }
 
 void matrix_scan_user(void) {
-    // 粘滞修饰超时自动释放
-    if (sticky_mod && timer_expired(timer_read(), sticky_deadline)) {
+    // 粘滞修饰超时自动释放 (产生独立修饰键输出，如切换输入法)
+    if (sticky_mods && timer_expired(timer_read(), sticky_deadline)) {
         sticky_mod_clear();
     }
 }
