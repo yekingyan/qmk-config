@@ -314,25 +314,32 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
     ),
 };
 
-// 默认 Combo (S+D=Esc, J+K=LShift)，写入 Vial EEPROM
-void eeconfig_init_user(void) {
-    vial_combo_entry_t combo;
-    // S+D → ESC
-    memset(&combo, 0, sizeof(combo));
-    combo.input[0] = KC_S;
-    combo.input[1] = KC_D;
-    combo.output = KC_ESC;
-    dynamic_keymap_set_combo(0, &combo);
-    // J+K → LShift
-    memset(&combo, 0, sizeof(combo));
-    combo.input[0] = KC_J;
-    combo.input[1] = KC_K;
-    combo.output = KC_LSFT;
-    dynamic_keymap_set_combo(1, &combo);
-    // F+J → Caps Word
-    memset(&combo, 0, sizeof(combo));
-    combo.input[0] = KC_F;
-    combo.input[1] = KC_J;
-    combo.output = CW_TOGG;
-    dynamic_keymap_set_combo(2, &combo);
+// Vial combo 数组 (vial.c 中定义，此处引用以手动刷新)
+extern combo_t key_combos[];
+extern uint16_t key_combos_keys[][5];
+
+// 默认 Combo: S+D=Esc, J+K=LShift, F+J=CapsWord
+void keyboard_post_init_user(void) {
+    static const uint16_t defaults[][3] = {
+        {KC_S, KC_D, COMBO_END},  // → Esc
+        {KC_J, KC_K, COMBO_END},  // → LShift
+        {KC_F, KC_J, COMBO_END},  // → CapsWord
+    };
+    static const uint16_t outputs[] = { KC_ESC, KC_LSFT, CW_TOGG };
+
+    vial_combo_entry_t entry;
+    for (int i = 0; i < 3; i++) {
+        // 读取 EEPROM，如果未设置则写入默认值
+        dynamic_keymap_get_combo(i, &entry);
+        if (entry.output == 0) {
+            memset(&entry, 0, sizeof(entry));
+            memcpy(entry.input, defaults[i], sizeof(entry.input));
+            entry.output = outputs[i];
+            dynamic_keymap_set_combo(i, &entry);
+        }
+        // 刷新内存中的 combo 数组 (keyboard_post_init 在 reload_combo 之后执行)
+        memcpy(key_combos_keys[i], entry.input, sizeof(entry.input));
+        key_combos[i].keys   = key_combos_keys[i];
+        key_combos[i].keycode = entry.output;
+    }
 }
