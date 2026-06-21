@@ -199,4 +199,10 @@ void eeconfig_init_user(void) {
     combo.input[1] = KC_K;
     combo.output = KC_LSFT;
     dynamic_keymap_set_combo(1, &combo);
+    // F+J → Caps Word
+    memset(&combo, 0, sizeof(combo));
+    combo.input[0] = KC_F;
+    combo.input[1] = KC_J;
+    combo.output = CW_TOGG;
+    dynamic_keymap_set_combo(2, &combo);
 }
