@@ -14,6 +14,11 @@
 - [x] GitHub Actions 云编译
 - [ ] 刷机验证
 
+### 刷机须知
+
+- **只改键位**：只刷主手（插 USB 那半），从手无需重刷
+- **改通信协议 / QMK 大版本升级**：两边都刷
+
 ### 键位需求（对齐 zmk-config 设计）
 
 > 34 键核心区必须与 `~/projects/zmk-config/docs/keymap-design.md` 完全一致。

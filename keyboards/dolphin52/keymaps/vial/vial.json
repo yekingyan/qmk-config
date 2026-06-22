@@ -10,10 +10,6 @@
   },
   "customKeycodes": [
     {"name": "SW_APP",    "title": "Alt-Tab Swapper",       "shortName": "SWApp"},
-    {"name": "C_LEFT",    "title": "Ctrl+Left (Word←)",     "shortName": "C(←)"},
-    {"name": "C_DN",      "title": "Ctrl+D (Half Page↓)",   "shortName": "C(D)"},
-    {"name": "C_UP",      "title": "Ctrl+U (Half Page↑)",   "shortName": "C(U)"},
-    {"name": "C_RGHT",    "title": "Ctrl+Right (Word→)",    "shortName": "C(→)"},
     {"name": "SK_LGUI",   "title": "Sticky Win/Cmd",        "shortName": "SKGui"},
     {"name": "SK_LALT",   "title": "Sticky Alt",            "shortName": "SKAlt"},
     {"name": "SK_LCTL",   "title": "Sticky Ctrl",           "shortName": "SKCtl"},
