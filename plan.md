@@ -23,13 +23,17 @@
 
 > 34 键核心区必须与 `~/projects/zmk-config/docs/keymap-design.md` 完全一致。
 
-- **Nav 层右手 Q 行**：`C(←) C-D C-U C(→) DEL`（按词跳跃），用自定义键码 `C_LEFT/C_DN/C_UP/C_RGHT` 显式 register/unregister，不用 QMK `C()` 宏
+- **Nav 层右手 Q 行**：`C(←) C(D) C(U) C(→) DEL`（按词跳跃 / Vim 翻页），使用标准 QMK `C()` 宏
+- **Nav-Mac 层**：Mac 对应键使用标准 `G()`/`A()` 宏（⌘剪贴板 + ⌥词跳）
 - **OSM 粘滞修饰**：QMK 内置 `OSM()` 在 LT 激活层上有 bug（独立按键发送），改用自定义 `SK_LGUI/LALT/LCTL/LSFT`
   - 行为对齐 ZMK `&skn`：chain 累加（多个修饰可叠加），1s 超时释放，重复按只刷新计时不 toggle-off
   - 左手 Nav 层 A/S/D/F = Win/Alt/Ctrl/Shift 粘滞；右手 Sym/Mouse/Media 层镜像区同样
 - **Combo**：S+D=Esc、J+K=LShift、F+J=CapsWord，通过 `eeconfig_init_user()` 写入 Vial EEPROM 默认值（F+J 跨手可能不触发，备用 Nav 层 G 位 CW_TOGG）
-- **Bootloader**：_FUN 层左上 ESC 和右上 `-` 都是 `QK_BOOTLOADER`（vial-qmk 兼容名），仅左手也能进刷机
+- **Bootloader**：_FUN 层左上和右上都是 `QK_BOOTLOADER`（vial-qmk 兼容名），仅左手也能进刷机
 - **Tapping 配置**：`PERMISSIVE_HOLD` + `TAPPING_TERM 200` + `QUICK_TAP_TERM 150`，全局启用，稳定 LT 判定
+- **层内空位**：非 BASE 层未定义位使用 `KC_NO`（按了无反应），不透传
+- **拇指键**：激活当前层的拇指键保持透传，其余拇指键定义为对应 tap 值（SPC/TAB/ENT/BSPC），支持长按 repeat。NUM 层右拇指2 特例为 `KC_0`
+- **Vial 自定义键码**：enum 起始用 `QK_KB_0`（非 `SAFE_RANGE`），配合 `vial.json` 的 `customKeycodes` 让 Vial GUI 正确显示名称。仅保留需要自定义逻辑的键码（SW_APP、SK_*、SW_APP_MAC），简单修饰组合用标准 `C()`/`G()`/`A()` 宏
 
 ### 已知坑
 
@@ -41,6 +45,8 @@
 | `combo_t key_combos` 重复定义 | `vial.c` 已定义 | 用 `eeconfig_init_user()` 写默认值 |
 | `F+J` combo 跨手可能不触发 | 串口分体各半独立扫描 | 提供 Nav 层 G 位 CW_TOGG 备用 |
 | `QK_BOOT` 别名不存在 | vial-qmk 版本较老 | 用 `QK_BOOTLOADER` |
+| Vial GUI 自定义键码显示乱码 | `SAFE_RANGE`=`QK_USER`(0x7E40)，Vial 只识别 `QK_KB`(0x7E00) | enum 用 `QK_KB_0` 起始 + vial.json `customKeycodes` |
+| 改 enum 后 Vial 仍显示旧名 | EEPROM 缓存旧键码值 | 刷固件后 File → Reset EEPROM |
 
 ### 文件结构
 
