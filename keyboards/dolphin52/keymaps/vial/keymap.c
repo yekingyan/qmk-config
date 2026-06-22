@@ -22,7 +22,7 @@ enum layers {
 };
 
 enum custom_keycodes {
-    SW_APP = SAFE_RANGE,
+    SW_APP = QK_KB_0,
     C_LEFT,   // Ctrl+Left  (按词左跳)
     C_DN,     // Ctrl+Down  (Vim 半页下翻)
     C_UP,     // Ctrl+Up    (Vim 半页上翻)
