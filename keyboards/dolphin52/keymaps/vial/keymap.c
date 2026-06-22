@@ -176,7 +176,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
         XXXXXXX, SW_APP,  S(KC_TAB),KC_ENT,  KC_LSFT, KC_BSPC,    C(KC_LEFT), C(KC_D), C(KC_U), C(KC_RGHT), KC_DEL, XXXXXXX,
         XXXXXXX, SK_LGUI, SK_LALT, SK_LCTL, SK_LSFT,CW_TOGG, KC_LEFT,KC_DOWN,KC_UP,KC_RGHT,C(KC_DEL),XXXXXXX,
         XXXXXXX, C(KC_Z), C(KC_X), C(KC_C), C(KC_V), XXXXXXX,    KC_HOME, KC_PGDN, KC_PGUP, KC_END,  C(KC_BSPC),XXXXXXX,
-        _______, _______, _______,                                 _______, _______
+        _______,  KC_TAB,  XXXXXXX,                                KC_ENT,  KC_BSPC
     ),
 
     [_NUM] = LAYOUT(
@@ -184,7 +184,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
         XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX,    KC_DOT,  KC_7,    KC_8,    KC_9,    KC_MINS, XXXXXXX,
         XXXXXXX, SK_LGUI, SK_LALT, SK_LCTL, SK_LSFT,KC_BSPC, XXXXXXX,KC_4,KC_5,KC_6,KC_PLUS,XXXXXXX,
         XXXXXXX, XXXXXXX, KC_SLSH, KC_ASTR, KC_EQL,  XXXXXXX,    XXXXXXX, KC_1,    KC_2,    KC_3,    XXXXXXX, XXXXXXX,
-        _______, _______, _______,                                 _______, KC_0
+        KC_SPC,  _______,  XXXXXXX,                                KC_ENT,  KC_BSPC
     ),
 
     [_SYM] = LAYOUT(
@@ -192,7 +192,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
         XXXXXXX, KC_EXLM, KC_AT,   KC_HASH, KC_DLR,  KC_PERC,    KC_CIRC, KC_AMPR, KC_ASTR, KC_EQL,  KC_QUOT, XXXXXXX,
         XXXXXXX, KC_LPRN, KC_LCBR, KC_LBRC, KC_LT,   KC_UNDS,    KC_PIPE, SK_LSFT, SK_LCTL, SK_LALT, SK_LGUI,XXXXXXX,
         XXXXXXX, KC_RPRN, KC_RCBR, KC_RBRC, KC_GT,   KC_GRV,     KC_BSLS, KC_TILD, KC_COLN, KC_DQUO, KC_QUES, XXXXXXX,
-        _______, _______, _______,                                 _______, _______
+        KC_SPC,  KC_TAB,  XXXXXXX,                                _______,  KC_BSPC
     ),
 
     [_MOUSE] = LAYOUT(
@@ -200,7 +200,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
         XXXXXXX, C(KC_Z), C(KC_Y), C(G(KC_LEFT)),C(G(KC_RGHT)),XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX,
         XXXXXXX, XXXXXXX, KC_MS_L, KC_MS_U, KC_MS_D, KC_MS_R,    XXXXXXX, SK_LSFT, SK_LCTL, SK_LALT, SK_LGUI,XXXXXXX,
         XXXXXXX, XXXXXXX, KC_WH_L, KC_WH_U, KC_WH_D, KC_WH_R,    XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX,
-        KC_BTN2, KC_BTN1, _______,                                 _______, _______
+        KC_BTN2, KC_BTN1, XXXXXXX,                                KC_ENT,  _______
     ),
 
     [_FUN] = LAYOUT(
@@ -208,7 +208,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
         XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX,    XXXXXXX, KC_F7,   KC_F8,   KC_F9,   KC_F12,  XXXXXXX,
         XXXXXXX, SK_LGUI, SK_LALT, SK_LCTL, SK_LSFT,XXXXXXX, XXXXXXX,KC_F4,KC_F5,KC_F6,KC_F11,XXXXXXX,
         XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX,    XXXXXXX, KC_F1,   KC_F2,   KC_F3,   KC_F10,  XXXXXXX,
-        _______, _______, _______,                                 _______, _______
+        _______,  _______,  XXXXXXX,                               KC_ENT,  KC_BSPC
     ),
 
     [_NAV_MAC] = LAYOUT(
@@ -216,7 +216,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
         XXXXXXX, SW_APP_MAC,S(KC_TAB),XXXXXXX, XXXXXXX, XXXXXXX, A(KC_LEFT), C(KC_D), C(KC_U), A(KC_RGHT), KC_DEL, XXXXXXX,
         XXXXXXX, SK_LGUI, SK_LALT, SK_LCTL, SK_LSFT, CW_TOGG,    KC_LEFT, KC_DOWN, KC_UP, KC_RGHT, A(KC_DEL),  XXXXXXX,
         XXXXXXX, G(KC_Z),  G(KC_X),  G(KC_C),  G(KC_V),  XXXXXXX,   KC_HOME, KC_PGDN, KC_PGUP, KC_END,  A(KC_BSPC), XXXXXXX,
-        _______, _______, _______,                                 _______, _______
+        _______,  KC_TAB,  XXXXXXX,                                KC_ENT,  KC_BSPC
     ),
 
     [_MEDIA] = LAYOUT(
@@ -224,7 +224,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
         XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX,    XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX,
         XXXXXXX, XXXXXXX, KC_MPRV, KC_VOLD, KC_VOLU, KC_MNXT,    XXXXXXX, SK_LSFT, SK_LCTL, SK_LALT, SK_LGUI,XXXXXXX,
         XXXXXXX, XXXXXXX, KC_MUTE, KC_BRID, KC_BRIU, KC_MPLY,    XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX,
-        _______, _______, _______,                                 _______, _______
+        KC_SPC,  KC_TAB,  XXXXXXX,                                _______,  _______
     ),
 };
 
