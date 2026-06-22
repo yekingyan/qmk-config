@@ -29,14 +29,6 @@ enum custom_keycodes {
     SK_LSFT,  // Sticky Shift
     // Mac Nav: ⌘ 剪贴板 + ⌥ 方向键
     SW_APP_MAC,  // ⌘+Tab (Mac 版 Swapper)
-    G_Z,   // ⌘+Z (撤销)
-    G_X,   // ⌘+X (剪切)
-    G_C,   // ⌘+C (复制)
-    G_V,   // ⌘+V (粘贴)
-    A_LEFT,   // ⌥+← (按词左跳)
-    A_RGHT,   // ⌥+→ (按词右跳)
-    A_DEL,    // ⌥+Delete
-    A_BSPC,   // ⌥+Backspace
 };
 
 static bool sw_app_active = false;
@@ -105,40 +97,6 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
                 }
                 tap_code(KC_TAB);
             }
-            return false;
-
-        case G_Z:
-            if (record->event.pressed) { register_code(KC_LGUI); register_code(KC_Z); }
-            else { unregister_code(KC_Z); unregister_code(KC_LGUI); }
-            return false;
-        case G_X:
-            if (record->event.pressed) { register_code(KC_LGUI); register_code(KC_X); }
-            else { unregister_code(KC_X); unregister_code(KC_LGUI); }
-            return false;
-        case G_C:
-            if (record->event.pressed) { register_code(KC_LGUI); register_code(KC_C); }
-            else { unregister_code(KC_C); unregister_code(KC_LGUI); }
-            return false;
-        case G_V:
-            if (record->event.pressed) { register_code(KC_LGUI); register_code(KC_V); }
-            else { unregister_code(KC_V); unregister_code(KC_LGUI); }
-            return false;
-
-        case A_LEFT:
-            if (record->event.pressed) { register_code(KC_LALT); register_code(KC_LEFT); }
-            else { unregister_code(KC_LEFT); unregister_code(KC_LALT); }
-            return false;
-        case A_RGHT:
-            if (record->event.pressed) { register_code(KC_LALT); register_code(KC_RGHT); }
-            else { unregister_code(KC_RGHT); unregister_code(KC_LALT); }
-            return false;
-        case A_DEL:
-            if (record->event.pressed) { register_code(KC_LALT); register_code(KC_DEL); }
-            else { unregister_code(KC_DEL); unregister_code(KC_LALT); }
-            return false;
-        case A_BSPC:
-            if (record->event.pressed) { register_code(KC_LALT); register_code(KC_BSPC); }
-            else { unregister_code(KC_BSPC); unregister_code(KC_LALT); }
             return false;
     }
 
@@ -255,9 +213,9 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 
     [_NAV_MAC] = LAYOUT(
         _______, _______, _______, _______, _______, _______,    _______, _______, _______, _______, _______, _______,
-        _______, SW_APP_MAC,S(KC_TAB),_______, _______, _______, A_LEFT, C(KC_D), C(KC_U), A_RGHT, KC_DEL, _______,
-        _______, SK_LGUI, SK_LALT, SK_LCTL, SK_LSFT, CW_TOGG,    KC_LEFT, KC_DOWN, KC_UP, KC_RGHT, A_DEL,  _______,
-        _______, G_Z,  G_X,  G_C,  G_V,  _______,                KC_HOME, KC_PGDN, KC_PGUP, KC_END,  A_BSPC, _______,
+        _______, SW_APP_MAC,S(KC_TAB),_______, _______, _______, A(KC_LEFT), C(KC_D), C(KC_U), A(KC_RGHT), KC_DEL, _______,
+        _______, SK_LGUI, SK_LALT, SK_LCTL, SK_LSFT, CW_TOGG,    KC_LEFT, KC_DOWN, KC_UP, KC_RGHT, A(KC_DEL),  _______,
+        _______, G(KC_Z),  G(KC_X),  G(KC_C),  G(KC_V),  _______,   KC_HOME, KC_PGDN, KC_PGUP, KC_END,  A(KC_BSPC), _______,
         _______, _______, _______,                                 _______, _______
     ),
 

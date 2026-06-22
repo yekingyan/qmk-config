@@ -14,15 +14,7 @@
     {"name": "SK_LALT",   "title": "Sticky Alt",            "shortName": "SKAlt"},
     {"name": "SK_LCTL",   "title": "Sticky Ctrl",           "shortName": "SKCtl"},
     {"name": "SK_LSFT",   "title": "Sticky Shift",          "shortName": "SKSft"},
-    {"name": "SW_APP_MAC","title": "⌘-Tab Swapper (Mac)",   "shortName": "SWMac"},
-    {"name": "G_Z",       "title": "⌘+Z (Undo)",           "shortName": "⌘Z"},
-    {"name": "G_X",       "title": "⌘+X (Cut)",            "shortName": "⌘X"},
-    {"name": "G_C",       "title": "⌘+C (Copy)",           "shortName": "⌘C"},
-    {"name": "G_V",       "title": "⌘+V (Paste)",          "shortName": "⌘V"},
-    {"name": "A_LEFT",    "title": "⌥+← (Word Left)",      "shortName": "⌥←"},
-    {"name": "A_RGHT",    "title": "⌥+→ (Word Right)",     "shortName": "⌥→"},
-    {"name": "A_DEL",     "title": "⌥+Del (Word Del)",     "shortName": "⌥Del"},
-    {"name": "A_BSPC",    "title": "⌥+Bspc (Word Bspc)",  "shortName": "⌥Bsp"}
+    {"name": "SW_APP_MAC","title": "⌘-Tab Swapper (Mac)",   "shortName": "SWMac"}
   ],
   "layouts": {
     "keymap": [
