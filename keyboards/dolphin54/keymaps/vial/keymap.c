@@ -1,10 +1,10 @@
 /*
- * Dolphin52 — 52 键分体键盘 QMK 布局
+ * Dolphin54 — 54 键分体键盘 QMK 布局
  * 核心：Sweep 7 层 (Base/Nav/Num/Sym/Mouse/Fun/Media)
  * 外围：传统键位 (数字行 + 修饰列)
  *
- * 布局：4x6 + 2 拇指 (每侧 26 键)
- * 核心区 = 内侧 3x5 + 2 拇指 (与 Sweep 完全一致)
+ * 布局：4x6 + 3 拇指 (每侧 27 键)
+ * 核心区 = 内侧 3x5 + 3 拇指 (与 Sweep 核心层兼容)
  * 外围区 = 数字行 6 键 + 修饰列 3 键
  */
 
@@ -148,12 +148,12 @@ bool caps_word_press_user(uint16_t keycode) {
     }
 }
 
-/* 52 键 LAYOUT 宏排列:
+/* 54 键 LAYOUT 宏排列:
  * 左数字行(6) 右数字行(6)
  * 左Q行(6)    右Q行(6)
  * 左A行(6)    右A行(6)
  * 左Z行(6)    右Z行(6)
- * 左拇指(2)   右拇指(2)
+ * 左拇指(3)   右拇指(3)
  */
 
 const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
