@@ -1,10 +1,24 @@
 # QMK 项目驾驶舱
 
-## 活跃项目：Dolphin52
+## 活跃项目：Dolphin54
+
+> 54 键分体键盘，YD-RP2040 主控，Direct Pin，Vial QMK。
+> 相比 Dolphin52 左右各多一个最外侧拇指键（均连接 GP23 引脚）。
+
+### 状态
+
+- [x] QMK 固件初始化（Dolphin54 54键配置与布局）
+- [x] 键位移植（大拇指最外侧分配左手 LALT，右手 RGUI）
+- [x] Vial 支持（Vial.json 渲染 6 拇指）
+- [x] GitHub Actions 云编译
+- [ ] 刷机验证
+
+---
+
+## 阶段性升级项目：Dolphin52
 
 > 52 键分体键盘，YD-RP2040 主控，Direct Pin，Vial QMK。
-
-详见 `docs/dolphin52-notes.md`
+> **2026-07-16 记录**：已成功验证 GP23 测试引脚可用。项目已正式分化出 54 键版本的 **Dolphin54**，Dolphin52 本身已撤销测试配置，恢复为纯净的 52 键固件。
 
 ### 状态
 
