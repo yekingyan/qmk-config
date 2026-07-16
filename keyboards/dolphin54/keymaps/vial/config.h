@@ -1,0 +1,36 @@
+#pragma once
+
+// Vial
+#define DYNAMIC_KEYMAP_LAYER_COUNT 8
+#define VIAL_TAP_DANCE_ENTRIES 10
+#define VIAL_COMBO_ENTRIES 10
+#define VIAL_KEYBOARD_UID {0x44, 0x4F, 0x4C, 0x50, 0x48, 0x5F, 0x35, 0x34}
+
+// Vial 解锁 combo: 左上角 [0,0] + 右上角 [5,5]
+#define VIAL_UNLOCK_COMBO_ROWS { 0, 5 }
+#define VIAL_UNLOCK_COMBO_COLS { 0, 5 }
+
+// Tap-Hold
+#define TAPPING_TERM 200
+#define PERMISSIVE_HOLD
+// HOLD_ON_OTHER_KEY_PRESS_PER_KEY 由 QMK 构建系统定义
+#define QUICK_TAP_TERM 150
+
+// One Shot
+#define ONESHOT_TIMEOUT 1000
+
+// Combo
+#define COMBO_TERM 50
+
+// Caps Word
+#define CAPS_WORD_IDLE_TIMEOUT 5000
+
+// Mouse
+#define MOUSEKEY_DELAY 0
+#define MOUSEKEY_INTERVAL 16
+#define MOUSEKEY_MAX_SPEED 10
+#define MOUSEKEY_TIME_TO_MAX 40
+#define MOUSEKEY_WHEEL_DELAY 0
+#define MOUSEKEY_WHEEL_INTERVAL 50
+#define MOUSEKEY_WHEEL_MAX_SPEED 8
+#define MOUSEKEY_WHEEL_TIME_TO_MAX 40

@@ -25,6 +25,8 @@ jobs:
         run: |
           # Dolphin52 (full keyboard definition)
           cp -r keyboards/dolphin52 vial-qmk/keyboards/dolphin52
+          # Dolphin54 (full keyboard definition)
+          cp -r keyboards/dolphin54 vial-qmk/keyboards/dolphin54
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -41,10 +43,11 @@ jobs:
           cd vial-qmk
           qmk setup --yes --home .
 
-      - name: Build Dolphin52 firmware
+      - name: Build Dolphin52 and Dolphin54 firmware
         run: |
           cd vial-qmk
           make dolphin52:vial
+          make dolphin54:vial
 
       - name: Upload firmware
         uses: actions/upload-artifact@v4
