@@ -11,6 +11,7 @@
 - [x] 键位移植（大拇指最外侧分配左手 LALT，右手 RGUI）
 - [x] Vial 支持（Vial.json 渲染 6 拇指）
 - [x] GitHub Actions 云编译
+- [x] 键位修改：右侧最外列按键帽高度重排（由上至下：`-` KC_MINS、`+` KC_EQL、`{` KC_LBRC、`"` KC_QUOT）
 - [ ] 刷机验证
 
 ---
