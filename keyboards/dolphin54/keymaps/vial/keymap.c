@@ -40,6 +40,11 @@ static bool sw_app_mac = false;  // true=⌘+Tab, false=Alt+Tab
 static uint8_t  sticky_mods = 0;
 static uint16_t sticky_deadline = 0;
 
+static bool space_pressed = false;
+static bool tab_pressed = false;
+static bool enter_pressed = false;
+static bool backspace_pressed = false;
+
 #define STICKY_TIMEOUT_MS 1000  // 1s 超时自动释放
 
 static uint8_t sticky_mod_to_kc(uint8_t mod) {
@@ -67,6 +72,54 @@ static void sticky_mod_clear(void) {
 
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     switch (keycode) {
+        case KC_SPC:
+            space_pressed = record->event.pressed;
+            if (space_pressed) {
+                if (tab_pressed) {
+                    layer_on(_FUN);
+                    return false;
+                }
+            } else {
+                layer_off(_FUN);
+            }
+            return true;
+
+        case KC_TAB:
+            tab_pressed = record->event.pressed;
+            if (tab_pressed) {
+                if (space_pressed) {
+                    layer_on(_FUN);
+                    return false;
+                }
+            } else {
+                layer_off(_FUN);
+            }
+            return true;
+
+        case KC_ENT:
+            enter_pressed = record->event.pressed;
+            if (enter_pressed) {
+                if (backspace_pressed) {
+                    layer_on(_MEDIA);
+                    return false;
+                }
+            } else {
+                layer_off(_MEDIA);
+            }
+            return true;
+
+        case KC_BSPC:
+            backspace_pressed = record->event.pressed;
+            if (backspace_pressed) {
+                if (enter_pressed) {
+                    layer_on(_MEDIA);
+                    return false;
+                }
+            } else {
+                layer_off(_MEDIA);
+            }
+            return true;
+
         case SW_APP:
             if (record->event.pressed) {
                 if (!sw_app_active) {
@@ -126,9 +179,9 @@ layer_state_t layer_state_set_user(layer_state_t state) {
         unregister_code(sw_app_mac ? KC_LGUI : KC_LALT);
         sw_app_active = false;
     }
-    // 双拇指切层: 左 Space+Tab -> Fun, 右 Enter+Bspc -> Media
-    state = update_tri_layer_state(state, _NAV, _NUM, _FUN);
-    state = update_tri_layer_state(state, _SYM, _MOUSE, _MEDIA);
+    // // 双拇指切层: 左 Space+Tab -> Fun, 右 Enter+Bspc -> Media
+    // state = update_tri_layer_state(state, _NAV, _NUM, _FUN);
+    // state = update_tri_layer_state(state, _SYM, _MOUSE, _MEDIA);
     return state;
 }
 
@@ -168,7 +221,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
         // Z 行: 外围LCtrl + 核心5 | 核心5 + 外围'
         KC_LCTL, KC_Z,    KC_X,    KC_C,    KC_V,    KC_B,       KC_N,    KC_M,    KC_COMM, KC_DOT,  KC_SLSH, KC_QUOT,
         // 拇指 (核心) + GP23 测试键 (Alt/未定)
-        KC_LALT, LT(_NAV, KC_SPC), LT(_NUM, KC_TAB),          LT(_SYM, KC_ENT), LT(_MOUSE, KC_BSPC), KC_RGUI
+        KC_LALT, KC_SPC,  KC_TAB,                             KC_ENT,  KC_BSPC, KC_RGUI
     ),
 
     [_NAV] = LAYOUT(
