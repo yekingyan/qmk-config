@@ -71,10 +71,12 @@ static void sticky_mod_clear(void) {
 }
 
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
-    // 提取基础键码：无论在 Vial 将键设为了纯按键，还是 LT/MT，都能剥离出最底层的按键进行物理判断
+    // 提取基础键码，并标记是否为带层的复杂键
     uint16_t base_keycode = keycode;
+    bool is_complex = false;
     if (IS_QK_LAYER_TAP(keycode) || IS_QK_MOD_TAP(keycode)) {
-        base_keycode = keycode & 0xFF; // 取出最末尾的 8-bit 基础按键（如 KC_SPC）
+        base_keycode = keycode & 0xFF;
+        is_complex = true;
     }
 
     switch (base_keycode) {
@@ -83,7 +85,7 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
             if (space_pressed) {
                 if (tab_pressed) {
                     layer_on(_FUN);
-                    return false;
+                    return is_complex; // 如果是纯按键则拦截，如果是LT/MT则放行给底层处理防止死锁
                 }
             } else {
                 layer_off(_FUN);
@@ -95,7 +97,7 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
             if (tab_pressed) {
                 if (space_pressed) {
                     layer_on(_FUN);
-                    return false;
+                    return is_complex;
                 }
             } else {
                 layer_off(_FUN);
@@ -107,7 +109,7 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
             if (enter_pressed) {
                 if (backspace_pressed) {
                     layer_on(_MEDIA);
-                    return false;
+                    return is_complex;
                 }
             } else {
                 layer_off(_MEDIA);
@@ -119,7 +121,7 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
             if (backspace_pressed) {
                 if (enter_pressed) {
                     layer_on(_MEDIA);
-                    return false;
+                    return is_complex;
                 }
             } else {
                 layer_off(_MEDIA);
