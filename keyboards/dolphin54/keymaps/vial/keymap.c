@@ -179,9 +179,11 @@ layer_state_t layer_state_set_user(layer_state_t state) {
         unregister_code(sw_app_mac ? KC_LGUI : KC_LALT);
         sw_app_active = false;
     }
-    // // 双拇指切层: 左 Space+Tab -> Fun, 右 Enter+Bspc -> Media
-    // state = update_tri_layer_state(state, _NAV, _NUM, _FUN);
-    // state = update_tri_layer_state(state, _SYM, _MOUSE, _MEDIA);
+    // 双拇指切层: 兼容 Vial 中将拇指设置为 LT() 长按切层的情况
+    // 左边: Nav + Num 层同时激活 -> 触发 Fun 层
+    state = update_tri_layer_state(state, _NAV, _NUM, _FUN);
+    // 右边: Sym + Mouse 层同时激活 -> 触发 Media 层
+    state = update_tri_layer_state(state, _SYM, _MOUSE, _MEDIA);
     return state;
 }
 
