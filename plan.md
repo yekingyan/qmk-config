@@ -11,7 +11,7 @@
 - [x] 键位移植（大拇指最外侧分配左手 LALT，右手 RGUI）
 - [x] Vial 支持（Vial.json 渲染 6 拇指）
 - [x] GitHub Actions 云编译
-- [x] 键位修改：右侧最外列按键帽高度重排（由上至下：`-` KC_MINS、`+` KC_EQL、`{` KC_LBRC、`"` KC_QUOT）
+- [x] 键位修改：左侧 Esc 下方改为 `-` (KC_MINS)，右侧最外列按键帽高度重排（由上至下：`+` KC_EQL、`[` KC_LBRC、`]` KC_RBRC、`"` KC_QUOT）
 - [x] 拇指切层修改：移除单按键 LT 切层，在代码中通过 space_pressed 等状态自定义实现 Space+Tab 进入 FUN 层，Enter+Backspace 进入 MEDIA 层
 - [ ] 刷机验证
 
