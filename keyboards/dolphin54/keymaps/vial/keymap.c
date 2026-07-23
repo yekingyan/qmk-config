@@ -187,14 +187,9 @@ layer_state_t layer_state_set_user(layer_state_t state) {
         unregister_code(sw_app_mac ? KC_LGUI : KC_LALT);
         sw_app_active = false;
     }
-    // 双拇指切层: 避免底层监控机制暴力解除手写逻辑刚激活的 FUN 层
-    // 如果没有同时按住双拇指，才允许 QMK 接管更新 state
-    if (!(space_pressed && tab_pressed)) {
-        state = update_tri_layer_state(state, _NAV, _NUM, _FUN);
-    }
-    if (!(enter_pressed && backspace_pressed)) {
-        state = update_tri_layer_state(state, _SYM, _MOUSE, _MEDIA);
-    }
+    // 移除 update_tri_layer_state 强制逻辑，
+    // 因为它会把不符合 tri-layer 条件的长按层（比如单独设为 LT 5 的键）给强制熄灭。
+    // 手写物理按键追踪已经完美处理了 "组合按键" 秒进的情况。
     return state;
 }
 
