@@ -71,7 +71,13 @@ static void sticky_mod_clear(void) {
 }
 
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
-    switch (keycode) {
+    // 提取基础键码：无论在 Vial 将键设为了纯按键，还是 LT/MT，都能剥离出最底层的按键进行物理判断
+    uint16_t base_keycode = keycode;
+    if (IS_QK_LAYER_TAP(keycode) || IS_QK_MOD_TAP(keycode)) {
+        base_keycode = keycode & 0xFF; // 取出最末尾的 8-bit 基础按键（如 KC_SPC）
+    }
+
+    switch (base_keycode) {
         case KC_SPC:
             space_pressed = record->event.pressed;
             if (space_pressed) {
