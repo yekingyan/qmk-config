@@ -187,11 +187,14 @@ layer_state_t layer_state_set_user(layer_state_t state) {
         unregister_code(sw_app_mac ? KC_LGUI : KC_LALT);
         sw_app_active = false;
     }
-    // 双拇指切层: 兼容 Vial 中将拇指设置为 LT() 长按切层的情况
-    // 左边: Nav + Num 层同时激活 -> 触发 Fun 层
-    state = update_tri_layer_state(state, _NAV, _NUM, _FUN);
-    // 右边: Sym + Mouse 层同时激活 -> 触发 Media 层
-    state = update_tri_layer_state(state, _SYM, _MOUSE, _MEDIA);
+    // 双拇指切层: 避免底层监控机制暴力解除手写逻辑刚激活的 FUN 层
+    // 如果没有同时按住双拇指，才允许 QMK 接管更新 state
+    if (!(space_pressed && tab_pressed)) {
+        state = update_tri_layer_state(state, _NAV, _NUM, _FUN);
+    }
+    if (!(enter_pressed && backspace_pressed)) {
+        state = update_tri_layer_state(state, _SYM, _MOUSE, _MEDIA);
+    }
     return state;
 }
 
