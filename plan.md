@@ -12,7 +12,7 @@
 - [x] Vial 支持（Vial.json 渲染 6 拇指）
 - [x] GitHub Actions 云编译
 - [x] 键位修改：左侧 Esc 下方改为 `-` (KC_MINS)，右侧最外列按键帽高度重排（由上至下：`+` KC_EQL、`[` KC_LBRC、`]` KC_RBRC、`"` KC_QUOT）
-- [x] 拇指切层修改：移除单按键 LT 切层，在代码中通过 space_pressed 等状态自定义实现 Space+Tab 进入 FUN 层，Enter+Backspace 进入 MEDIA 层
+- [x] 拇指切层修改：移除单按键 LT 切层，在代码中通过 space_pressed 等状态自定义实现 Space+Tab 秒进 FUN 层，Enter+Backspace 秒进 MEDIA 层。彻底移除 `update_tri_layer_state`，完美兼容 Vial UI 内将其设为纯按键或 `LT()` 混搭的情况。
 - [ ] 刷机验证
 
 ---
@@ -62,7 +62,8 @@
 | `F+J` combo 跨手可能不触发 | 串口分体各半独立扫描 | 提供 Nav 层 G 位 CW_TOGG 备用 |
 | `QK_BOOT` 别名不存在 | vial-qmk 版本较老 | 用 `QK_BOOTLOADER` |
 | Vial GUI 自定义键码显示乱码 | `SAFE_RANGE`=`QK_USER`(0x7E40)，Vial 只识别 `QK_KB`(0x7E00) | enum 用 `QK_KB_0` 起始 + vial.json `customKeycodes` |
-| 改 enum 后 Vial 仍显示旧名 | EEPROM 缓存旧键码值 | 刷固件后 File → Reset EEPROM || Vial 界面按键渲染错乱/拇指键不对齐 | vial.json 间距(x偏移)设置有误，或 keyboard.json 的 layout 数组未严格按物理坐标(从左到右)排序 | 检查并调整 vial.json 的偏移坐标 (如 `{"x":1}`)；keyboard.json 布局宏必须按实际界面展现的物理顺序书写 |
+| 改 enum 后 Vial 仍显示旧名 | EEPROM 缓存旧键码值 | 刷固件后 File → Reset EEPROM |
+| Vial UI 设置单键 LT 长按切层失效 | `update_tri_layer_state` 强制检查底层冲突 | 在 `layer_state_set_user` 中弃用原生 tri_layer 宏，完全由 `process_record_user` 内的自定义 `space_pressed` 兼容处理 || Vial 界面按键渲染错乱/拇指键不对齐 | vial.json 间距(x偏移)设置有误，或 keyboard.json 的 layout 数组未严格按物理坐标(从左到右)排序 | 检查并调整 vial.json 的偏移坐标 (如 `{"x":1}`)；keyboard.json 布局宏必须按实际界面展现的物理顺序书写 |
 ### 文件结构
 
 ```
