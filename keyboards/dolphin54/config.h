@@ -10,3 +10,6 @@
 
 // 锁定左手为主键盘（使用时 USB 请插左半区的主控）
 #define MASTER_LEFT
+
+// 看门狗，自动重启
+#define SPLIT_WATCHDOG_ENABLE
