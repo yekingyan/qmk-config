@@ -13,7 +13,7 @@
 - [x] GitHub Actions 云编译
 - [x] 键位修改：左侧 Esc 下方改为 `-` (KC_MINS)，右侧最外列按键帽高度重排（由上至下：`+` KC_EQL、`[` KC_LBRC、`]` KC_RBRC、`"` KC_QUOT）
 - [x] 拇指切层修改：移除单按键 LT 切层，在代码中通过 space_pressed 等状态自定义实现 Space+Tab 秒进 FUN 层，Enter+Backspace 秒进 MEDIA 层。彻底移除 `update_tri_layer_state`，完美兼容 Vial UI 内将其设为纯按键或 `LT()` 混搭的情况。
-- [x] 开启 Console 日志输出与 Debug 调试模式（CONSOLE_ENABLE = yes 及 debug_* 初始化）
+- [x] Console 日志与 Debug 调试配置（`CONSOLE_ENABLE` 及 `debug_*` 初始化已添加并默认注释保留，以便随时取消注释排查）
 - [ ] 刷机验证
 
 ---
