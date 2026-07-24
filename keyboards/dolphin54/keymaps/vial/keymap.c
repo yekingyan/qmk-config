@@ -294,6 +294,11 @@ extern combo_t key_combos[];
 extern uint16_t key_combos_keys[][5];
 
 void keyboard_post_init_user(void) {
+    // 开启调试模式
+    debug_enable = true;
+    debug_matrix = true;
+    debug_keyboard = true;
+
     static const uint16_t keys[][3] = {
         {KC_S, KC_D, COMBO_END}, {KC_J, KC_K, COMBO_END}, {KC_F, KC_J, COMBO_END},
     };
