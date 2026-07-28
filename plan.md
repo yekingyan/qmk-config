@@ -13,8 +13,9 @@
 - [x] GitHub Actions 云编译
 - [x] 键位修改：左侧 Esc 下方改为 `-` (KC_MINS)，右侧最外列按键帽高度重排（由上至下：`+` KC_EQL、`[` KC_LBRC、`]` KC_RBRC、`"` KC_QUOT）
 - [x] 拇指切层修改：移除单按键 LT 切层，在代码中通过 space_pressed 等状态自定义实现 Space+Tab 秒进 FUN 层，Enter+Backspace 秒进 MEDIA 层。彻底移除 `update_tri_layer_state`，完美兼容 Vial UI 内将其设为纯按键或 `LT()` 混搭的情况。
-- [x] Console 日志与 Debug 调试配置（已重新开启：`CONSOLE_ENABLE = yes` 及 `debug_*` 初始化）
+- [x] Console 日志与 Debug 调试配置（已注释关闭：`# CONSOLE_ENABLE = yes` 及 `debug_*` 注释保留，需要时随时取消注释）
 - [x] 显式关闭 RGB 功能（`RGBLIGHT_ENABLE = no` 及 `RGB_MATRIX_ENABLE = no`，防止向 GP23 引脚输出灯光控制信号）
+- [x] USB 唤醒防假死配置（加入 `#define NO_SUSPEND_POWER_DOWN` 及 `#define NO_USB_STARTUP_CHECK` 彻底解决笔记本 5V 持续供电导致的唤醒死机问题）
 - [ ] 刷机验证
 
 ---
@@ -57,7 +58,9 @@
 
 | 问题 | 根因 | 方案 |
 |------|------|------|
+| USB 唤醒假死（Wake-up Zombie State） | 笔记本 5V 持续供电 + RP2040 深度休眠/握手时序问题 | `config.h` 中定义 `#define NO_SUSPEND_POWER_DOWN` 和 `#define NO_USB_STARTUP_CHECK` |
 | OSM 被 LT 松手吞掉 | QMK#20269，tap/hold 共用代码 | 自定义 SK_* 替代 |
+
 | `HOLD_ON_OTHER_KEY_PRESS` 重定义 | QMK 构建系统自动注入 | config.h 不定义，靠 PERMISSIVE_HOLD |
 | `get_hold_on_other_key_press` 重复定义 | `qmk_settings.c` 非 weak | 不定义此函数 |
 | `combo_t key_combos` 重复定义 | `vial.c` 已定义 | 用 `eeconfig_init_user()` 写默认值 |
