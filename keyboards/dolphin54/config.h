@@ -14,7 +14,12 @@
 // 看门狗，自动重启
 #define SPLIT_WATCHDOG_ENABLE
 
+// 防止串口通信死锁与无限阻塞
+#define SPLIT_MAX_CONNECTION_ERRORS 10
+#define SPLIT_CONNECTION_CHECK_TIMEOUT 500
+
 // 防止笔记本 5V 持续供电导致的 USB 休眠唤醒假死（Wake-up Zombie State）
 #define NO_SUSPEND_POWER_DOWN
 #define NO_USB_STARTUP_CHECK
+
 
