@@ -85,15 +85,22 @@
 #ifndef DOLPHIN_USB_RESTART_RETRY_MS
 #    define DOLPHIN_USB_RESTART_RETRY_MS 3000
 #endif
+// 帧计数器停止推进多久算「USB 硬件失活」。总线活跃时主机每 1ms 发一个 SOF，
+// 所以 100ms 内一次都不动就绝非正常。
+#ifndef DOLPHIN_USB_FRAME_STALL_MS
+#    define DOLPHIN_USB_FRAME_STALL_MS 100
+#endif
 // 第 3 级：仍然救不回来就复位 MCU
 #ifndef DOLPHIN_USB_STUCK_RESET_MS
 #    define DOLPHIN_USB_STUCK_RESET_MS 10000
 #endif
 
 static uint32_t last_key_activity = 0;
-static uint32_t stuck_since       = 0;     // 进入非 ACTIVE 的时刻，0 = 正常
+static uint32_t stuck_since       = 0;     // 进入异常的时刻，0 = 正常
 static uint32_t last_wakeup_try   = 0;
 static uint32_t last_restart_try  = 0;
+static uint16_t last_frame        = 0;
+static uint32_t last_frame_move   = 0;     // 帧号最后一次变化的时刻，0 = 未知
 static bool     was_active        = false; // 本次上电后是否曾经 USB_ACTIVE
 
 /* USB GET_STATUS(Device) 的 Remote Wakeup Enabled 位（USB 2.0 规范 9.4.5，bit1）。
@@ -103,18 +110,57 @@ static bool     was_active        = false; // 本次上电后是否曾经 USB_AC
 #    define USB_GETSTATUS_REMOTE_WAKEUP_ENABLED (2U)
 #endif
 
+/* 判断 USB 是否失活。两个条件取或，覆盖两类根因：
+ *
+ * (a) `USB_DRIVER.state != USB_ACTIVE` —— 软件状态机卡住。
+ *     例如误检 DEV_SUSPEND 卡在 USB_SUSPENDED，或误检 BUS_RESET 被 _usb_reset()
+ *     打回 USB_READY 等主机重新配置、而主机根本不知道发生过。
+ *
+ * (b) 硬件帧计数器停止推进 —— 对应 RP2040 勘误 E15：USB 设备控制器**硬件锁死**。
+ *     这一条是必须的，因为硬件锁死后控制器不再产生任何中断，
+ *     而 `_usb_suspend()` / `_usb_reset()` 只在中断里被调用，
+ *     所以 `USB_DRIVER.state` 会一直停在 USB_ACTIVE —— 只看 (a) 完全检测不到。
+ *     `usbGetFrameNumberX()` 读的是 `USB->SOFRD`（硬件寄存器），不依赖任何软件状态。
+ *
+ *     E15 背景：pico-sdk 1.5.0 起有官方缓解 PICO_RP2040_USB_DEVICE_UFRAME_FIX，
+ *     发布说明称「required for correctness」，但它只挂在 TinyUSB 构建上；
+ *     ChibiOS 的 RP2040 USB 驱动里没有任何 errata 处理（已 grep 确认），
+ *     所以 QMK 拿不到这个修复。文档记载触发条件是接 Pi 4/400(VL805)，
+ *     但树莓派官方论坛有「Erratum E15 seen in field without VL805」专帖。
+ *
+ * 注意 `USB->SOFRD` 是读清型寄存器（读它会清 SOF 中断标志）。基线 USB->INTE
+ * 未开 DEV_SOF（实测为 0x0001d010），所以常态下轮询无害；但 usbWakeupHost()
+ * 会打开 DEV_SOF，故这里只在 state == USB_ACTIVE 时才读，避开与 LLD 中
+ * 基于 SOF 的自愈路径抢标志。
+ */
+static bool usb_is_dead(uint32_t now) {
+    if (USB_DRIVER.state != USB_ACTIVE) {
+        last_frame_move = 0; // 状态本身就不对，帧号无参考意义
+        return true;
+    }
+
+    const uint16_t frame = (uint16_t)usbGetFrameNumberX(&USB_DRIVER);
+    if (last_frame_move == 0 || frame != last_frame) {
+        last_frame      = frame;
+        last_frame_move = now ? now : 1;
+        return false;
+    }
+
+    return timer_elapsed32(last_frame_move) > DOLPHIN_USB_FRAME_STALL_MS;
+}
+
 static void usb_stuck_recovery_task(void) {
     if (!is_keyboard_master()) {
         return; // 从手没有 USB 主机，这套逻辑不适用
     }
 
-    if (USB_DRIVER.state == USB_ACTIVE) {
+    const uint32_t now = timer_read32();
+
+    if (!usb_is_dead(now)) {
         was_active  = true;
         stuck_since = 0;
         return;
     }
-
-    const uint32_t now = timer_read32();
 
     if (stuck_since == 0) {
         stuck_since = now ? now : 1; // 避开 0 这个「正常」哨兵值
@@ -131,7 +177,8 @@ static void usb_stuck_recovery_task(void) {
 
     /* 第 1 级：请求远程唤醒。最轻量，不打断任何东西。
      * usbWakeupHost() 内部自带 state == USB_SUSPENDED 判断，无条件调用是安全的；
-     * 副作用是打开 DEV_SOF 中断，从而激活 LLD 中基于 SOF 的自愈路径。 */
+     * 副作用是打开 DEV_SOF 中断，从而激活 LLD 中基于 SOF 的自愈路径。
+     * 注意：若根因是 E15 硬件锁死（state 仍为 ACTIVE），这一级不会有任何作用。 */
     if (timer_elapsed32(last_wakeup_try) > DOLPHIN_USB_WAKEUP_RETRY_MS) {
         last_wakeup_try = now;
         if (USB_DRIVER.status & USB_GETSTATUS_REMOTE_WAKEUP_ENABLED) {
@@ -142,16 +189,22 @@ static void usb_stuck_recovery_task(void) {
     /* 第 2 级：重启 USB 驱动栈。官方 API（tmk_core/protocol/chibios/usb_main.c:361，
      * 声明在 usb_main.h），做的是 usbDisconnectBus → usbStop → 停掉所有端点
      * → 等 50ms → 重新 init/start 所有端点 → usbStart → usbConnectBus。
-     * 关键优点是**不重启 MCU**：层状态、粘滞修饰、分体链路、EEPROM 缓存全部保留，
-     * 且能直接把卡住的 ChibiOS USB 状态机复位。代价是主机会重新枚举一次。 */
+     *
+     * 关键：`usb_lld_start()` 在 state == USB_STOP 时会执行
+     *   hal_lld_peripheral_reset(RESETS_ALLREG_USBCTRL) + unreset
+     *   memset(USB, 0, ...) + memset(USB_DPSRAM, 0, ...)
+     * 即**整个 USB 外设块硬件复位 + 寄存器与 DPRAM 清零**，与进 bootrom 时
+     * bootrom 做的是同一类复位。所以它不仅能救软件状态卡住，
+     * 也能救 E15 那种硬件锁死，而且**不重启 MCU** —— 层状态、粘滞修饰、
+     * 分体链路、EEPROM 缓存全部保留。 */
     if (stuck_for > DOLPHIN_USB_RESTART_AFTER_MS && timer_elapsed32(last_restart_try) > DOLPHIN_USB_RESTART_RETRY_MS) {
         last_restart_try = now;
+        last_frame_move  = 0; // 重启后帧号重新计基准
         restart_usb_driver(&USB_DRIVER);
         return; // 给主机留出重新枚举的时间，下一轮再判断
     }
 
-    /* 第 3 级：连驱动栈重启都救不回来（例如 RP2040 的 USB 控制器在硬件层面卡死），
-     * 才复位 MCU。等效于自动帮你拔插一次。
+    /* 第 3 级：连外设块复位都救不回来，才复位 MCU。等效于自动帮你拔插一次。
      * was_active 门控：只有「曾经正常工作过」才允许，避免接充电头（有 5V 无主机）
      * 时按键导致反复复位。 */
     if (was_active && stuck_for > DOLPHIN_USB_STUCK_RESET_MS) {
