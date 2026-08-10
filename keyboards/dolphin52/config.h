@@ -11,10 +11,13 @@
 // 锁定左手为主键盘（使用时 USB 请插左半区的主控）
 #define MASTER_LEFT
 
-// 看门狗，自动重启
+// 从手看门狗：收不到主手通信就重启。注意它只作用于「被判定为从手」的那一侧，
+// 主手的卡死保护由 dolphin52.c 里的 RP2040 硬件看门狗负责。
 #define SPLIT_WATCHDOG_ENABLE
 
-// 防止串口通信死锁与无限阻塞
+// 单半区可用性：主手在连续失败若干次后判定从手未连接，并对重试做节流。
+// 这两个值就是 QMK 默认值，显式写出只是为了满足 SPLIT_WATCHDOG_ENABLE 的
+// STATIC_ASSERT 并让配置自解释；它们不提供任何防死锁能力。
 #define SPLIT_MAX_CONNECTION_ERRORS 10
 #define SPLIT_CONNECTION_CHECK_TIMEOUT 500
 
