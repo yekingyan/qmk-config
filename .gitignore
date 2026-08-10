@@ -14,3 +14,6 @@
 compile_commands.json
 .clangd/
 .cache/
+
+# kb-diag.sh 的本地基线（每次刷机/重启都会变，不入库以免噪音）
+scripts/.kb-baseline
