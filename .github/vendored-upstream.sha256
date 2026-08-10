@@ -1,0 +1,15 @@
+# 被本仓库 vendored（复制并本地修改）的上游文件基线校验清单
+#
+# 用途：keyboards/dolphin5x/serial_vendor.c 是 vial-qmk 平台驱动的本地覆盖版本。
+# 一旦上游改动了原文件，我们的副本就会停留在旧版本、拿不到上游的修复，
+# 且我们的改动可能已不适用。CI 会用 `sha256sum -c` 校验上游原文是否仍是基线版本，
+# 不一致就让构建失败，强制我们同步。
+#
+# 路径相对 vial-qmk 仓库根目录。基线 commit: dd43959ae5c08d8a28d38a1acf7b04e86b14a344
+#
+# 上游变更后的同步步骤：
+#   1. 用上游新版原文覆盖 keyboards/dolphin54/serial_vendor.c
+#   2. 重新施加两处 osalSysLock() 内忙等的时间上界（见该文件头部注释）
+#   3. cp 到 keyboards/dolphin52/serial_vendor.c
+#   4. 用上游新版原文的 sha256 更新本文件
+81c1be5e78fd4f57395ec3480f08c9df7f0ec456f75cc95da70da5d0a359db8f  platforms/chibios/drivers/vendor/RP/RP2040/serial_vendor.c

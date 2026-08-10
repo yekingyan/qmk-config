@@ -21,8 +21,27 @@ jobs:
           path: vial-qmk
           submodules: recursive
 
+      # 守卫 1：本仓库 vendored 了上游的 serial_vendor.c（见该文件头部注释）。
+      # 若上游改动了原文件，我们的副本就会停留在旧版本、拿不到上游修复，
+      # 且本地改动可能已不适用。此处强制失败，逼迫我们同步而不是悄悄用旧版。
+      - name: Guard vendored upstream files against drift
+        run: |
+          set -euo pipefail
+          cd vial-qmk
+          echo "vial-qmk commit: $(git rev-parse HEAD)"
+          if ! sha256sum -c "${GITHUB_WORKSPACE}/.github/vendored-upstream.sha256"; then
+            echo "::error::上游 serial_vendor.c 已变更，本仓库的 vendored 副本已过期。"
+            echo "::error::请按 .github/vendored-upstream.sha256 中的步骤重新同步并更新基线哈希。"
+            echo "----- 上游新版 vs 本仓库副本 diff -----"
+            diff -u \
+              platforms/chibios/drivers/vendor/RP/RP2040/serial_vendor.c \
+              "${GITHUB_WORKSPACE}/keyboards/dolphin54/serial_vendor.c" || true
+            exit 1
+          fi
+
       - name: Copy keyboard definitions into vial-qmk
         run: |
+          set -euo pipefail
           # Dolphin52 (full keyboard definition)
           cp -r keyboards/dolphin52 vial-qmk/keyboards/dolphin52
           # Dolphin54 (full keyboard definition)
@@ -45,13 +64,31 @@ jobs:
 
       - name: Build Dolphin52 and Dolphin54 firmware
         run: |
+          set -euo pipefail
           cd vial-qmk
-          make dolphin52:vial
-          make dolphin54:vial
+          make dolphin52:vial 2>&1 | tee build-dolphin52.log
+          make dolphin54:vial 2>&1 | tee build-dolphin54.log
+
+      # 守卫 2：确认 VPATH 覆盖真的生效（编译的是键盘目录下那份 serial_vendor.c，
+      # 而不是平台目录下的上游版本）。若上游改变了该文件加入 SRC 的方式，
+      # 覆盖会静默失效、忙等上界随之丢失，这里让它显式失败。
+      - name: Verify keyboard-level serial_vendor.c override took effect
+        run: |
+          set -euo pipefail
+          cd vial-qmk
+          for kb in dolphin52 dolphin54; do
+            if ! grep -q "keyboards/${kb}/serial_vendor.c" "build-${kb}.log"; then
+              echo "::error::${kb}: VPATH 覆盖失效，编译用的不是 keyboards/${kb}/serial_vendor.c"
+              grep -i "serial_vendor" "build-${kb}.log" || true
+              exit 1
+            fi
+            echo "${kb}: serial_vendor.c 覆盖生效"
+          done
 
       - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
-          name: dolphin52-vial-firmware
+          name: dolphin-vial-firmware
+          if-no-files-found: error
           path: |
             vial-qmk/*.uf2
