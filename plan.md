@@ -12,16 +12,51 @@
 - [x] Vial 支持（Vial.json 渲染 6 拇指）
 - [x] GitHub Actions 云编译
 - [x] 键位修改：左侧 Esc 下方改为 `-` (KC_MINS)，右侧最外列按键帽高度重排（由上至下：`+` KC_EQL、`[` KC_LBRC、`]` KC_RBRC、`"` KC_QUOT）
-- [x] 拇指切层修改：移除单按键 LT 切层，在代码中通过 space_pressed 等状态自定义实现 Space+Tab 秒进 FUN 层，Enter+Backspace 秒进 MEDIA 层。彻底移除 `update_tri_layer_state`，完美兼容 Vial UI 内将其设为纯按键或 `LT()` 混搭的情况。
+- [x] 拇指切层：**固件侧不做任何层组合逻辑**，完全交给 Vial 配置。任意键可设成 `LT(n,kc)` / `MO(n)` / `TG(n)` / `TO(n)` / `LM(n,mod)`，改键界面自由指定。默认键位里拇指全是普通按键（新芯片只用基础层即可打字，不会误触切层）
+  - 曾用过两套「双拇指同时按进第三层」实现，**均已于 2026-08-10 移除**：
+    - 手写 `space_pressed` 等四个影子状态位：只在捕捉到松手事件时关层，漏一次事件层就永久开着（`_FUN`/`_MEDIA` 大部分位是 `XXXXXXX`，症状为「按键完全失灵」且只能断电）。而按键事件确实可能被 combo 在 `pre_process_record_quantum` 吞掉（`quantum/quantum.c:284`）
+    - 官方 `update_tri_layer_state`：无影子状态不会卡死，但条件不成立时会**强制关闭**第三层（`state & ~mask3`），与「单独配一个长按键直接进 _FUN」不兼容——键刚点亮就被抹掉
+  - 附带：QMK 的 Tri Layer 特性因 `VIA_ENABLE=yes` 而自动编入（`builddefs/common_features.mk:634`），若哪天真想要「两键进第三层」，可直接在 Vial 里用 `TL_LOWR`/`TL_UPPR` 键码，无需改固件
 - [x] Console 日志与 Debug 调试配置（已注释关闭：`# CONSOLE_ENABLE = yes` 及 `debug_*` 注释保留，需要时随时取消注释）
 - [x] 显式关闭 RGB 功能（`RGBLIGHT_ENABLE = no` 及 `RGB_MATRIX_ENABLE = no`，防止向 GP23 引脚输出灯光控制信号）
 - [x] USB 唤醒防假死配置（加入 `#define NO_SUSPEND_POWER_DOWN` 及 `#define NO_USB_STARTUP_CHECK` 彻底解决笔记本 5V 持续供电导致的唤醒死机问题）
 - [x] 主手卡死自恢复（`dolphin54.c` 启用 RP2040 硬件看门狗，4s 超时，在 `housekeeping_task_kb` 喂狗。QMK 的 `SPLIT_WATCHDOG_ENABLE` 只保护从手）
 - [x] 分体串口死锁根因修复（`serial_vendor.c` 本地覆盖，给两处 `osalSysLock()` 内的无超时忙等加时间上界；CI 有上游漂移与覆盖失效两道守卫）
-- [ ] 刷机验证（**本次两边都要刷**：看门狗与串口驱动在主从两侧都生效，不属于「只改键位」）
-- [ ] **待定因：使用中偶发整机无响应**（详见下方「未结案：使用中偶发卡死」）
+- [x] 刷机验证（2026-08-10 14:20 左右手均已刷入，枚举时刻 `14:18:32`；看门狗未误触发）
+- [ ] **假死问题未结案**：22:15 再次复现，已定位为设备级 USB 发送通路（非 keymap、非串口死锁），修复方案待决定
+- [ ] keymap.c 简化（用官方特性替代自定义逻辑，与假死问题无关）
 
-### 未结案：使用中偶发卡死
+### 偶发卡死：修复已部署，待长期验证
+
+**进度时间线**
+
+| 日期 | 进展 |
+|------|------|
+| 2026-08-10 | 现象上报；确认主机侧 USB 完全正常，定位为固件主循环停摆；发现主手无看门狗 |
+| 2026-08-10 | 补充信息：存活 7~8 小时到几天 → 排除计时器回绕，判定为概率性触发 |
+| 2026-08-10 | 在 PIO 半双工串口驱动中定位到两处 `osalSysLock()` 内的无超时忙等（根因首选） |
+| 2026-08-10 | 提交 `0b4a5ef`（根因修复 + 硬件看门狗兜底）、`5e6886d`（CI 两道守卫），推送 main |
+| 2026-08-10 | CI [run 31356270778](https://github.com/yekingyan/qmk-config/actions/runs/31356270778) 全绿，11 步全 success，产物 `dolphin-vial-firmware`（含两个 uf2）已上传 |
+| 2026-08-10 14:20 | **左右手均已刷入**，USB 枚举时刻 `14:18:32`，正常使用中 |
+| 2026-08-10 14:24 | 已连续 6 分钟无重新枚举 → 确认**看门狗没有误触发** |
+| 2026-08-10 22:15 | **再次卡死**。枚举时刻仍是 `14:18:32`（存活 ≤7h57m）→ **看门狗未触发** → 主循环是活的 → 走分支 C，PIO 串口死锁假设被否 |
+| 2026-08-10 22:25 | 现场判活：Space+Tab 进 _FUN 后按左上角，**`RPI-RP2` 正常弹出** → 主循环、矩阵扫描、`process_record_user`、切层逻辑全部活着 |
+| 2026-08-10 23:03 | 补充证据：卡死时**专门试过 2 次 Vial 都连不上**；**console 在正常时确认能滚 log，卡死后一行不出** → 三条独立 USB IN 端点同时死 → **keymap 假设排除，定位为设备级 USB 发送通路** |
+
+**观察窗口**：历史 MTBF 是 7~8 小时到几天。「几天没复现」不能算修好，至少要连续正常使用 **2~3 周**。
+
+**观察记录**（存活时长 = 两次 `LastArrivalDate` 之差）
+
+| 枚举时刻 | 结束时刻 | 存活时长 | 结束原因 | 备注 |
+|----------|----------|----------|----------|------|
+| 2026-08-10 10:02:20 | ~11:33 前 | ≤91 分钟 | 卡死，手动拔插 | 修复前 |
+| 2026-08-10 11:42:20 | 14:18 前 | — | 主动拔插刷机 | 修复前 |
+| 2026-08-10 14:18:32 | ~22:15 | **≤7h57m** | 卡死，看门狗未触发 | 已含看门狗 + 串口上界，**均无效** |
+
+**判读规则**：
+
+- 枚举时刻自己变了、且你没拔线 → 看门狗触发过（曾卡死已自动恢复）→ 分支 B
+- 卡死且枚举时刻不变、必须手动拔插 → 看门狗没救回来 → 分支 C（**2026-08-10 22:15 实测即此**）
 
 **现象**（2026-08-10）：正常使用中忽然整机无响应，键盘 HID 和 Vial（raw HID）**同时**失效，只有热插拔 USB 能恢复。存活时长通常 7~8 小时，有时几天，偶尔短到 1.5 小时以内 —— 概率性触发，非周期性。
 
@@ -33,30 +68,73 @@
   `if (!split_watchdog_done && !is_keyboard_master())`，`SPLIT_WATCHDOG_ENABLE` 明确只作用于从手。
   这解释了为什么必须手动拔插才能恢复。
 
-**根因首选：PIO 半双工串口驱动里的无界忙等**
+**根因（2026-08-10 23:03 定位）：设备级 USB 驱动状态卡在非 `USB_ACTIVE`**
 
-`platforms/chibios/drivers/vendor/RP/RP2040/serial_vendor.c` 有两处 `osalSysLock()`
-（内核级屏蔽中断）之内的**无超时**循环：
+决定性证据是**三条相互独立的 USB IN 端点同时死掉**，而主循环侧证明完全正常：
 
-1. `enter_rx_state()`：`while (!pio_sm_is_tx_fifo_empty(pio, tx_state_machine)) {}`
-   —— 每次 `serial_transport_send()` 结尾都会走到。TX 状态机若卡住不排空 FIFO 即永久死锁。
-2. `serial_transport_driver_clear()`：`while (!pio_sm_is_rx_fifo_empty(...)) { pio_sm_clear_fifos(...); }`
-   —— RX 线若被持续噪声/常低驱动，PIO 会不断 push，该循环也可能永不退出。
+| 通路 | 接口 | 卡死时表现 | 是否经过 keymap / 层状态 |
+|------|------|-----------|------------------------|
+| 键盘 HID | MI_00 | 按键无反应 | 经过 |
+| raw HID (Vial) | MI_01 | 连不上（专门试过 2 次）| **完全不经过** |
+| Console | 额外接口 | 无输出（正常时已确认会滚 log）| **完全不经过** |
 
-两者都能精确复现观察到的签名：主循环停摆 + 中断被屏蔽 → 键盘 HID 与 raw HID 同时死 →
-主机侧仍显示已枚举、无任何错误 → 只有上电复位可救；且触发条件是罕见时序/噪声，符合小时到天的 MTBF。
+三者共用同一个门（`tmk_core/protocol/chibios/usb_driver.c` 的 `usb_endpoint_in_send()`）：
 
-**上游 QMK master 该文件代码完全相同**，即所有 RP2040 半双工分体键盘共有的潜在缺陷，无现成补丁可摘。
+```c
+if (usbGetDriverStateI(endpoint->config.usbp) != USB_ACTIVE) {
+    return false;   // 静默丢弃。usbp 是设备级对象，一个变量卡住三个接口一起死
+}
+```
+
+**为什么没有任何自愈**（均已核对源码）：
+
+- `USB_DRIVER.state == USB_SUSPENDED` 的检测与 `usbWakeupHost()` 全代码库**各只有一处**，
+  都在 `tmk_core/protocol/chibios/chibios.c` 第 180~201 行的
+  `#if !defined(NO_USB_STARTUP_CHECK)` 块内 → 我们定义了这个宏，被编译掉。
+- LLD 里 SOF 处理有一条 `if (state == USB_SUSPENDED) _usb_wakeup(usbp);`，但基线
+  `USB->INTE` 未开 `DEV_SOF`（固件二进制中实测该值为 `0x0001d010`，bit17 确实为 0）；
+  按 `usb_lld_wakeup_host` 宏的注释，SOF 中断只在发起远程唤醒时才打开。
+- `DEV_RESUME_FROM_HOST` 需要主机真的发 resume，但主机侧显示 D0/无错误，不认为设备挂起过。
+- `BUS_RESET` 只有重新枚举（拔插）才有。
+
+所以根源是 `NO_USB_STARTUP_CHECK`：它去掉了挂起时的阻塞（我们要的），
+同时也去掉了唤醒时的恢复（我们不要的）。
+
+**尚未确定：卡在哪个非 ACTIVE 状态**，这决定修法：
+
+| 状态 | 触发条件 | 上游是否有恢复路径 |
+|------|---------|------------------|
+| `USB_SUSPENDED` (5) | 总线空闲 ≥3ms | 有（`usbWakeupHost()`，被宏编译掉了）|
+| `USB_READY` (2) | 误检 BUS_RESET，`_usb_reset()` 打回 READY 等主机重新配置，而主机不知道 | **完全没有** |
+
+用 console 抓这个状态变化**行不通**：`dprintf` 自身也走 `usb_endpoint_in_send()`，
+状态一变日志同时被丢弃。可行的判别是看恢复方式——恢复且枚举时刻不变 = SUSPENDED
+且远程唤醒生效；恢复且枚举时刻变了 = 走了复位兜底，即不是 SUSPENDED。
 
 **已排除的假设**：
 
-- ChibiOS 32 位 @1MHz 计时器回绕（71.58 分钟）：回绕是确定性的，与「7~8 小时 / 几天」的实际分布矛盾。
-  另外 QMK 的 `timer_read32()` 本身已有回绕补偿（`platforms/chibios/timer.c` 的 `OVERFLOW_ADJUST_TICKS`）。
-- 开机主从判定竞态：那种情况从插上就不工作，与「用着用着才死」矛盾。
+- **keymap.c / 切层**（2026-08-10 23:03 排除）：Vial 与 console 都不经过 keymap 和层状态，
+  它们同时死无法用「层卡住」解释。另外 QMK 有来源层缓存（`quantum/action_layer.c` 的
+  `store_or_get_action`：按下 `update_source_layers_cache`，松开 `read_source_layers_cache`），
+  「按住时切层导致松手键码变了、`*_pressed` 漏清」这条具体路径也是堵住的。
+  - **教训**：中途我曾用「bootloader 能进 ⇒ 层没卡住」来排除 keymap，这个论证是**错的**。
+    它只能排除比 _FUN 更高的层（_MEDIA=6、_NAV_MAC=7）。_FUN 自身卡住时，左手拇指是
+    `_______`（透传成 Space/Tab）、左上角正是 `QK_BOOTLOADER`，所有观察都吻合。
+    真正定案靠的是 Vial + console 这两条不经过 keymap 的通路。
+- **PIO 半双工串口死锁**（2026-08-10 22:15 排除）：那类故障会让主循环停摆、看门狗必然触发。
+  实测看门狗未触发。该隐患真实存在但不是本故障的原因。
+- **ChibiOS 32 位 @1MHz 计时器回绕（71.58 分钟）**：回绕是确定性的，与「7~8 小时 / 几天」矛盾。
+- **开机主从判定竞态**：那种情况从插上就不工作。
+- **主机休眠/唤醒**：查过 Windows 事件日志，14:00~22:15 期间无 Kernel-Power 42/107。
+- **修饰键卡住**：`GetAsyncKeyState` 实测全部为 up。
 
-**已做的处置**：加 RP2040 硬件看门狗（见上方状态项）。它是纯硬件计数器，不受 `osalSysLock()`
-屏蔽中断影响，所以能真正救上述死锁；死锁使主循环停止 → 停止喂狗 → 4s 后自动复位。
-主从两侧都覆盖（从手的死锁发生在 `SlaveThread`，但它持内核锁同样会冻住主循环）。
+**已做但被证明对本故障无效的处置**（保留，各自兜别的风险）：
+
+- RP2040 硬件看门狗：只能救「主循环停摆」，本故障主循环是活的，狗照喂 → 无效。
+- `serial_vendor.c` 忙等上界：修的是真实上游隐患，但已证明不是本故障原因。
+  **这块是过度设计**——代价是 vendored 一个上游时序敏感驱动 + 两道 CI 守卫 + 版本同步负担，
+  而它所修的隐患恰好能被硬件看门狗兜住。是否撤掉待定。
+
 
 **根因修复：本地覆盖上游驱动（已实施）**
 
@@ -94,6 +172,109 @@
 且循环内**不调用** `housekeeping_task()`。当前定义了该宏所以循环被编译掉、休眠期间照常喂狗。
 一旦去掉这个宏，硬件看门狗就会在主机休眠时每 4 秒复位一次。两者互斥。
 
+### 后续排查思路（按刷机后的实际表现分支）
+
+### 下一步：待决定的修复方案（分支 C 已确认）
+
+每次异常先做一件事：**用下方工具箱读 `LastArrivalDate`**，算出精确存活时长并追加到观察记录表。
+
+**方案 1 — 上游原生优先（最干净，但只覆盖 SUSPENDED）**
+
+1. `config.h` 删掉 `NO_USB_STARTUP_CHECK` → 上游的挂起检测、`usbWakeupHost()`、
+   `suspend_wakeup_init()` 全部原样回来。
+2. 在 `dolphin5x.c` 覆写官方 weak 钩子 `suspend_power_down_kb()` 调 `watchdog_update()`。
+   调用链已核实：`chibios.c:185` → `suspend_power_down()`（`platforms/chibios/suspend.c:20`）
+   → `suspend_power_down_quantum()`（`quantum/quantum.c:560`）→ `suspend_power_down_kb()`
+   （`platforms/suspend.c:21`，weak）。挂起循环每轮都会走到，所以主机休眠期间照样喂狗，
+   解决了「删掉该宏会让看门狗每 4 秒复位」的冲突。
+3. 不加任何自定义 USB 恢复代码。
+
+风险：`NO_USB_STARTUP_CHECK` 当初是和 `NO_SUSPEND_POWER_DOWN` 一起为治「唤醒假死」加的，
+删了有可能让原问题回来（但现在有看门狗兜底，处境好于当初）。
+且**若卡住的是 `USB_READY` 而非 `USB_SUSPENDED`，此方案无效**。
+
+**方案 2 — 状态无关兜底（约 15 行，只用公开 API）**
+
+不动那个宏，在 `housekeeping_task_kb` 里加：`USB_DRIVER.state != USB_ACTIVE`
+且距上次按键在 N 秒内、且本次上电曾经 ACTIVE 过（`was_active` 门控，避免接充电头时反复复位），
+持续超过 M 秒 → `mcu_reset()`。本质是「自动帮你拔插一次」，不管卡在哪个状态都能救。
+用「有按键活动」门控是对齐上游 `suspend_wakeup_condition()` 的语义，
+避免主机真休眠、用户没在用时反复唤醒主机或复位刷屏。
+
+**恢复方式本身就是判别实验**（无需任何诊断代码）：
+
+- 恢复了且枚举时刻**没变** → 是 `USB_SUSPENDED`，远程唤醒生效
+- 恢复了且枚举时刻**变了** → 走了复位兜底，说明不是 SUSPENDED
+- 完全没恢复 → 诊断方向错了
+
+**结案标准**：连续正常使用 2~3 周无异常 → 勾掉状态项，把本节压缩成「已知坑」表里一行。
+
+
+**分支 D — 出现新问题：右半区失灵 / 按键丢失 / 分体不同步**
+
+优先怀疑是串口上界改动的副作用（3819µs 超时在正常情况下被误触发，导致事务被丢弃）。
+
+- 快速验证方式是**把上界调大**，而不是删文件：把 `SERIAL_PIO_DRAIN_TIMEOUT_US` 的倍数
+  从 10 改成 1000（≈382ms），等效于关掉上界但保留文件结构，两道守卫都不受影响。
+  若问题消失即证实是误触发。
+- 注意：**不要用「删掉 `keyboards/dolphin5x/serial_vendor.c`」来做对比测试**。
+  删了之后守卫 2 会失败，而它在构建步骤之后、artifact 上传之前 —— job 会中断，
+  **拿不到任何固件产物**。真要回落到上游版本，必须同时把工作流里
+  `Verify keyboard-level serial_vendor.c override took effect` 这一步一起去掉。
+- 若确认是误触发：当前上界只需大于「8 字节 × 11bit / 波特率」，230400bps 下理论最坏 382µs，
+  10 倍已很宽松。真误触发说明有别的因素在拖慢 FIFO 排空，值得先查清原因再调参。
+
+**分支 E — CI 构建失败**
+
+看是哪道守卫失败：
+
+- `Guard vendored upstream files against drift` → 上游改动了 `serial_vendor.c`。
+  按 `.github/vendored-upstream.sha256` 注释里的 4 步同步：拿上游新版覆盖 → 重新施加两处上界
+  → cp 到另一个键盘目录 → 更新基线哈希。日志里会打印新旧 diff，直接照着改。
+- `Verify keyboard-level serial_vendor.c override took effect` → VPATH 覆盖机制变了。
+  重新确认 `builddefs/common_features.mk` 里 `QUANTUM_LIB_SRC += serial_$(SERIAL_DRIVER).c`
+  是否仍按裸文件名加入，以及 `build_keyboard.mk` 的 VPATH 顺序是否仍是
+  `KEYMAP_PATH` → `USER_PATH` → `KEYBOARD_PATHS` → `COMMON_VPATH`。
+
+### 诊断工具箱（本次排查中验证有效的手段，复用备查）
+
+**从 WSL 查 Windows 侧 USB 真实状态**（WSL2 无 USB 子系统，`/sys/bus/usb`、`/dev/hidraw*` 都不存在，
+必须绕道 PowerShell）：
+
+```powershell
+# 设备是否在、有无问题码
+Get-PnpDevice -PresentOnly | Where-Object {$_.InstanceId -like '*VID_594B*'} |
+  Select-Object Status,ProblemCode,FriendlyName,InstanceId
+
+# 精确的枚举时刻 —— 判断卡死期间有没有重新枚举、以及算存活时长
+(Get-PnpDeviceProperty -InstanceId '<id>' -KeyName 'DEVPKEY_Device_LastArrivalDate').Data
+
+# 是否被选择性挂起：解码 PowerData 的 MostRecentPowerState（D0 = 正常供电）
+$p = (Get-PnpDeviceProperty -InstanceId '<id>' -KeyName 'DEVPKEY_Device_PowerData').Data
+'D' + ([BitConverter]::ToInt32($p,4) - 1)
+```
+
+**查是否有修饰键被固件卡住**（能一次排除「RGUI/LALT 常按导致看起来没反应」）：
+`user32.dll` 的 `GetAsyncKeyState`，检查 `0x5B/0x5C/0xA0-0xA5` 的 `0x8000` 位。
+
+**判断卡死类型的核心逻辑**：键盘 HID 与 raw HID（Vial）**是否同时失效**。
+两者都在主循环里处理，而 USB 枚举由中断维持 —— 所以「主机侧显示设备正常但两条 HID 都不通」
+就等于主循环停摆，而不是 USB/驱动/线材问题。
+
+**本地编译验证**（仓库无 submodule，CI 才 clone vial-qmk；本地要自己拉）：
+
+```bash
+git clone --depth 1 -b vial https://github.com/vial-kb/vial-qmk.git /tmp/vial-qmk
+cd /tmp/vial-qmk && git submodule update --init --depth 1 \
+    lib/chibios lib/chibios-contrib lib/pico-sdk lib/printf
+cp -r ~/projects/qmk-config/keyboards/dolphin54 keyboards/ && make dolphin54:vial
+```
+
+**LTO 会吃掉符号，验证代码是否真的生成要看反汇编**：本次 `watchdog_enable`/`watchdog_update`
+在 `nm` 里完全查不到（被内联），只能靠 `objdump -d` 找字面量池核对，例如
+`0x6ab73121`(watchdog magic)、`0x007a1200`(4000ms 的 load 值)、`0x00000eeb`(3819µs 上界)。
+写完固件改动后如果只看「编译通过」，可能什么都没生效。
+
 ---
 
 ## 阶段性升级项目：Dolphin52
@@ -123,7 +304,19 @@
 - **OSM 粘滞修饰**：QMK 内置 `OSM()` 在 LT 激活层上有 bug（独立按键发送），改用自定义 `SK_LGUI/LALT/LCTL/LSFT`
   - 行为对齐 ZMK `&skn`：chain 累加（多个修饰可叠加），1s 超时释放，重复按只刷新计时不 toggle-off
   - 左手 Nav 层 A/S/D/F = Win/Alt/Ctrl/Shift 粘滞；右手 Sym/Mouse/Media 层镜像区同样
-- **Combo**：S+D=Esc、J+K=LShift、F+J=CapsWord，通过 `eeconfig_init_user()` 写入 Vial EEPROM 默认值（F+J 跨手可能不触发，备用 Nav 层 G 位 CW_TOGG）
+- **Combo**：S+D=Esc、J+K=LShift、F+J=CapsWord（F+J 跨手可能不触发，备用 Nav 层 G 位 CW_TOGG）
+  - **必须在 `keyboard_post_init_user()` 里播种进 EEPROM，不能用官方静态定义**：
+    vial-qmk 在 `COMBO_ENABLE=yes` 时无条件定义 `VIAL_COMBO_ENABLE`（`quantum/vial.h:108`）
+    并自己定义 `combo_t key_combos[]`（`quantum/vial.c:556`），官方那种在 keymap.c 里写
+    `combo_t key_combos[] = { COMBO(...) }` 会重复定义、链接失败。
+  - 播种覆盖「全新芯片首刷」场景：`wear_leveling_init()` 开头就 `memset(cache, 0, LOGICAL_SIZE)`，
+    且全新芯片上 FNV1a_64 校验必然失败而再次清零（`quantum/wear_leveling/wear_leveling.c:618-647`），
+    所以 EEPROM 全读 0 → `entry.output == 0` 成立 → 播种触发。
+  - 播种后那段「刷新 `key_combos[]` 内存数组」不是冗余代码：`vial_init()`（内含 `reload_combo()`）
+    在 `keyboard_setup()` 里执行（`quantum/keyboard.c:370`），**早于** `keyboard_post_init_user()`，
+    不手工刷一次的话新芯片第一次上电要等重启组合键才生效。
+  - `memcpy` 拷贝长度必须用 `sizeof(keys[i])`(6 字节) 而非 `sizeof(entry.input)`(8 字节)，
+    后者会越界读源数组 2 字节（2026-08-10 修）。
 - **Bootloader**：_FUN 层左上和右上都是 `QK_BOOTLOADER`（vial-qmk 兼容名），仅左手也能进刷机
 - **Tapping 配置**：`PERMISSIVE_HOLD` + `TAPPING_TERM 200` + `QUICK_TAP_TERM 150`，全局启用，稳定 LT 判定
 - **层内空位**：非 BASE 层未定义位使用 `KC_NO`（按了无反应），不透传
@@ -137,7 +330,9 @@
 | USB 唤醒假死（Wake-up Zombie State） | 笔记本 5V 持续供电 + RP2040 深度休眠/握手时序问题 | `config.h` 中定义 `#define NO_SUSPEND_POWER_DOWN` 和 `#define NO_USB_STARTUP_CHECK` |
 | OSM 被 LT 松手吞掉 | QMK#20269，tap/hold 共用代码 | 自定义 SK_* 替代 |
 
-| 使用中偶发整机假死（HID + raw HID 同时死，只有拔插能恢复） | `serial_vendor.c` 的 `enter_rx_state()` / `serial_transport_driver_clear()` 在 `osalSysLock()` 内有无超时忙等，PIO 状态机异常即永久死锁且中断被屏蔽（上游 QMK 同样代码） | ①`keyboards/dolphin5x/serial_vendor.c` 本地覆盖，给两处忙等加时间上界；②RP2040 硬件看门狗兜底自动复位 |
+| 使用中偶发整机假死（键盘 HID + raw HID + console 三条 IN 端点同时死，只有拔插能恢复） | 设备级 `USB_DRIVER.state` 卡在非 `USB_ACTIVE`，`usb_endpoint_in_send()` 入口静默丢弃全部报文；唯一的挂起检测与 `usbWakeupHost()` 都在 `#if !defined(NO_USB_STARTUP_CHECK)` 块内被编译掉 | 待定：方案 1（删该宏 + `suspend_power_down_kb()` 喂狗）或方案 2（非 ACTIVE 且有按键活动超时 → `mcu_reset()`）。硬件看门狗对此**无效**（主循环活着，狗照喂）|
+| 排查时误用「bootloader 能进」排除 keymap 层卡住 | 该论证只能排除比 _FUN 更高的层；_FUN 自身卡住时左手拇指透传成 Space/Tab、左上角正是 `QK_BOOTLOADER`，观察完全吻合 | 用不经过 keymap 的通路判别：Vial(raw HID) 与 console 是否也死 |
+| `serial_vendor.c` 忙等上界（保留但属过度设计） | 修的是真实上游隐患，但已证明不是本故障原因 | 代价是 vendored 上游驱动 + 两道 CI 守卫 + 同步负担，而该隐患恰好能被硬件看门狗兜住；是否撤掉待定 |
 | vendored 上游文件停留在旧版本、拿不到上游修复 | 复制上游文件到键盘目录会冻结版本，上游更新不会自动跟进 | CI 用 `.github/vendored-upstream.sha256` + `sha256sum -c` 校验上游原文；一变更就构建失败并打印 diff，强制同步 |
 | VPATH 覆盖可能静默失效 | 若上游改变 `serial_vendor.c` 加入 SRC 的方式，覆盖失效但编译照样成功，忙等上界悄悄丢失 | CI 构建后 grep 编译日志，确认编译的是 `keyboards/<kb>/serial_vendor.c` |
 | 主手卡死后只能手动拔插 USB 才能恢复 | `SPLIT_WATCHDOG_ENABLE` 仅对从手生效（`split_watchdog_task()` 里 `!is_keyboard_master()`），主手无任何看门狗 | `dolphin5x.c` 中启用 RP2040 硬件看门狗：`watchdog_enable(4000, false)` + 在 `housekeeping_task_kb` 里 `watchdog_update()` 喂狗 |
