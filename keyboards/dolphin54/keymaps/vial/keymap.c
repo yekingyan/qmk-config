@@ -40,11 +40,6 @@ static bool sw_app_mac = false;  // true=⌘+Tab, false=Alt+Tab
 static uint8_t  sticky_mods = 0;
 static uint16_t sticky_deadline = 0;
 
-static bool space_pressed = false;
-static bool tab_pressed = false;
-static bool enter_pressed = false;
-static bool backspace_pressed = false;
-
 #define STICKY_TIMEOUT_MS 1000  // 1s 超时自动释放
 
 static uint8_t sticky_mod_to_kc(uint8_t mod) {
@@ -62,72 +57,21 @@ static void sticky_mod_add(uint8_t mod) {
 }
 
 static void sticky_mod_clear(void) {
-    if (sticky_mods) {
-        for (uint8_t m = sticky_mods; m; m &= (m - 1)) {
-            unregister_code(sticky_mod_to_kc(m & -m));
+    if (!sticky_mods) return;
+    // 显式遍历这四个修饰键，比原来的 `m & -m` 取最低位写法更直观，
+    // 也避免了 sticky_mod_to_kc() 可能返回 KC_NO 的分支。
+    static const uint8_t mod_kcs[] = {KC_LSFT, KC_LCTL, KC_LALT, KC_LGUI};
+    for (uint8_t i = 0; i < sizeof(mod_kcs); i++) {
+        if (sticky_mods & MOD_BIT(mod_kcs[i])) {
+            unregister_code(mod_kcs[i]);
         }
-        sticky_mods = 0;
     }
+    sticky_mods = 0;
 }
 
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
-    // 提取基础键码，并标记是否为带层的复杂键
-    uint16_t base_keycode = keycode;
-    bool is_complex = false;
-    if (IS_QK_LAYER_TAP(keycode) || IS_QK_MOD_TAP(keycode)) {
-        base_keycode = keycode & 0xFF;
-        is_complex = true;
-    }
 
-    switch (base_keycode) {
-        case KC_SPC:
-            space_pressed = record->event.pressed;
-            if (space_pressed) {
-                if (tab_pressed) {
-                    layer_on(_FUN);
-                    return is_complex; // 如果是纯按键则拦截，如果是LT/MT则放行给底层处理防止死锁
-                }
-            } else {
-                layer_off(_FUN);
-            }
-            return true;
-
-        case KC_TAB:
-            tab_pressed = record->event.pressed;
-            if (tab_pressed) {
-                if (space_pressed) {
-                    layer_on(_FUN);
-                    return is_complex;
-                }
-            } else {
-                layer_off(_FUN);
-            }
-            return true;
-
-        case KC_ENT:
-            enter_pressed = record->event.pressed;
-            if (enter_pressed) {
-                if (backspace_pressed) {
-                    layer_on(_MEDIA);
-                    return is_complex;
-                }
-            } else {
-                layer_off(_MEDIA);
-            }
-            return true;
-
-        case KC_BSPC:
-            backspace_pressed = record->event.pressed;
-            if (backspace_pressed) {
-                if (enter_pressed) {
-                    layer_on(_MEDIA);
-                    return is_complex;
-                }
-            } else {
-                layer_off(_MEDIA);
-            }
-            return true;
-
+    switch (keycode) {
         case SW_APP:
             if (record->event.pressed) {
                 if (!sw_app_active) {
@@ -182,31 +126,31 @@ void matrix_scan_user(void) {
 }
 
 layer_state_t layer_state_set_user(layer_state_t state) {
+    /* 本文件不对层做任何组合/干预。
+     *
+     * 切层完全交给 Vial 配置：任意键都可以设成 LT(n, kc) / MO(n) / TG(n) / TO(n) /
+     * LM(n, mod)，全是 QMK 官方键码，改键界面里自由指定，固件侧不做任何限制。
+     *
+     * 历史（2026-08-10 移除）：这里曾经有两套「双拇指同时按进第三层」的实现，
+     * 都被弃用了，原因值得记住：
+     *   1. 手写实现：用四个 *_pressed 影子状态位追踪物理按键，只在捕捉到松手事件时
+     *      才关层。一旦某次松手事件没送到 process_record_user（按键事件确实可能被
+     *      combo 在 pre_process_record_quantum 里吞掉，见 quantum/quantum.c:284），
+     *      层就永久开着 —— 而 _FUN / _MEDIA 层大部分位是 XXXXXXX，症状是「按键完全
+     *      失灵」且只有断电能恢复。
+     *   2. 官方 update_tri_layer_state：无影子状态、不会卡死，但它在条件不成立时会
+     *      **强制关闭**第三层（实现是 `state & ~mask3`），于是和「单独配一个长按键
+     *      直接进 _FUN」不兼容 —— 那个键刚点亮就被抹掉。
+     * 现在的选择是两者都不要：一个拇指键长按进一个层，语义最简单，也最灵活。
+     */
+
     // Swapper 离开 Nav 层自动释放修饰键
     if (sw_app_active && !layer_state_cmp(state, _NAV) && !layer_state_cmp(state, _NAV_MAC)) {
         unregister_code(sw_app_mac ? KC_LGUI : KC_LALT);
         sw_app_active = false;
     }
-    // 移除 update_tri_layer_state 强制逻辑，
-    // 因为它会把不符合 tri-layer 条件的长按层（比如单独设为 LT 5 的键）给强制熄灭。
-    // 手写物理按键追踪已经完美处理了 "组合按键" 秒进的情况。
-    return state;
-}
 
-bool caps_word_press_user(uint16_t keycode) {
-    switch (keycode) {
-        case KC_A ... KC_Z:
-        case KC_1 ... KC_0:
-            add_weak_mods(MOD_BIT(KC_LSFT));
-            return true;
-        case KC_MINS:
-        case KC_UNDS:
-        case KC_BSPC:
-        case KC_DEL:
-            return true;
-        default:
-            return false;
-    }
+    return state;
 }
 
 /* 54 键 LAYOUT 宏排列:
@@ -228,7 +172,12 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
         KC_LSFT, KC_A,    KC_S,    KC_D,    KC_F,    KC_G,       KC_H,    KC_J,    KC_K,    KC_L,    KC_SCLN, KC_RBRC,
         // Z 行: 外围LCtrl + 核心5 | 核心5 + 外围'
         KC_LCTL, KC_Z,    KC_X,    KC_C,    KC_V,    KC_B,       KC_N,    KC_M,    KC_COMM, KC_DOT,  KC_SLSH, KC_QUOT,
-        // 拇指 (核心) + GP23 测试键 (Alt/未定)
+        // 拇指 (核心) + GP23 最外侧键
+        // 默认键位刻意保持最简：拇指全是普通按键，新芯片刷完只用基础层即可正常打字，
+        // 不会因为误触长按而莫名切层。切层属于进阶用法，完全由使用者在 Vial 里自行配置：
+        // 任意键都可设成 LT(n, kc) / MO(n) / TG(n) / TO(n) / LM(n, mod)，固件不做限制。
+        // 例如内侧四个拇指常配成 LT(1,Space) / LT(2,Tab) / LT(3,Enter) / LT(4,Bspc)，
+        // 外侧两个可配成进 _FUN(5) / _MEDIA(6) 的长按键。
         KC_LALT, KC_SPC,  KC_TAB,                             KC_ENT,  KC_BSPC, KC_RGUI
     ),
 
