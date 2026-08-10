@@ -73,18 +73,27 @@
 #ifndef DOLPHIN_USB_ACTIVITY_WINDOW_MS
 #    define DOLPHIN_USB_ACTIVITY_WINDOW_MS 3000
 #endif
-// 远程唤醒的重试节流间隔
+// 第 1 级：远程唤醒的重试节流间隔
 #ifndef DOLPHIN_USB_WAKEUP_RETRY_MS
 #    define DOLPHIN_USB_WAKEUP_RETRY_MS 250
 #endif
-// 卡在非 ACTIVE 且用户在按键，超过这个时长就复位兜底
+// 第 2 级：卡这么久后重启 USB 驱动栈（官方 restart_usb_driver，不重启 MCU）
+#ifndef DOLPHIN_USB_RESTART_AFTER_MS
+#    define DOLPHIN_USB_RESTART_AFTER_MS 2000
+#endif
+// 第 2 级的重试节流（restart_usb_driver 内含 50ms 阻塞 + 主机重新枚举耗时）
+#ifndef DOLPHIN_USB_RESTART_RETRY_MS
+#    define DOLPHIN_USB_RESTART_RETRY_MS 3000
+#endif
+// 第 3 级：仍然救不回来就复位 MCU
 #ifndef DOLPHIN_USB_STUCK_RESET_MS
-#    define DOLPHIN_USB_STUCK_RESET_MS 5000
+#    define DOLPHIN_USB_STUCK_RESET_MS 10000
 #endif
 
 static uint32_t last_key_activity = 0;
 static uint32_t stuck_since       = 0;     // 进入非 ACTIVE 的时刻，0 = 正常
 static uint32_t last_wakeup_try   = 0;
+static uint32_t last_restart_try  = 0;
 static bool     was_active        = false; // 本次上电后是否曾经 USB_ACTIVE
 
 /* USB GET_STATUS(Device) 的 Remote Wakeup Enabled 位（USB 2.0 规范 9.4.5，bit1）。
@@ -118,6 +127,11 @@ static void usb_stuck_recovery_task(void) {
         return;
     }
 
+    const uint32_t stuck_for = timer_elapsed32(stuck_since);
+
+    /* 第 1 级：请求远程唤醒。最轻量，不打断任何东西。
+     * usbWakeupHost() 内部自带 state == USB_SUSPENDED 判断，无条件调用是安全的；
+     * 副作用是打开 DEV_SOF 中断，从而激活 LLD 中基于 SOF 的自愈路径。 */
     if (timer_elapsed32(last_wakeup_try) > DOLPHIN_USB_WAKEUP_RETRY_MS) {
         last_wakeup_try = now;
         if (USB_DRIVER.status & USB_GETSTATUS_REMOTE_WAKEUP_ENABLED) {
@@ -125,7 +139,22 @@ static void usb_stuck_recovery_task(void) {
         }
     }
 
-    if (was_active && timer_elapsed32(stuck_since) > DOLPHIN_USB_STUCK_RESET_MS) {
+    /* 第 2 级：重启 USB 驱动栈。官方 API（tmk_core/protocol/chibios/usb_main.c:361，
+     * 声明在 usb_main.h），做的是 usbDisconnectBus → usbStop → 停掉所有端点
+     * → 等 50ms → 重新 init/start 所有端点 → usbStart → usbConnectBus。
+     * 关键优点是**不重启 MCU**：层状态、粘滞修饰、分体链路、EEPROM 缓存全部保留，
+     * 且能直接把卡住的 ChibiOS USB 状态机复位。代价是主机会重新枚举一次。 */
+    if (stuck_for > DOLPHIN_USB_RESTART_AFTER_MS && timer_elapsed32(last_restart_try) > DOLPHIN_USB_RESTART_RETRY_MS) {
+        last_restart_try = now;
+        restart_usb_driver(&USB_DRIVER);
+        return; // 给主机留出重新枚举的时间，下一轮再判断
+    }
+
+    /* 第 3 级：连驱动栈重启都救不回来（例如 RP2040 的 USB 控制器在硬件层面卡死），
+     * 才复位 MCU。等效于自动帮你拔插一次。
+     * was_active 门控：只有「曾经正常工作过」才允许，避免接充电头（有 5V 无主机）
+     * 时按键导致反复复位。 */
+    if (was_active && stuck_for > DOLPHIN_USB_STUCK_RESET_MS) {
         mcu_reset();
     }
 }

@@ -187,22 +187,39 @@ if (usbGetDriverStateI(endpoint->config.usbp) != USB_ACTIVE) {
 反过来说：**正因为固件逻辑是活的，软件层自救才可行**。如果真是整机停摆，就只有硬件看门狗
 能救（而它已实测无效——狗一直在被喂）。
 
-**实现**（`keyboards/dolphin5x/dolphin5x.c`，约 40 行，只用三个公开 API：
-`USB_DRIVER.state` / `usbWakeupHost()` / `mcu_reset()`）：
+**实现**（`keyboards/dolphin5x/dolphin5x.c`，只用公开 API：`USB_DRIVER.state` /
+`usbWakeupHost()` / `restart_usb_driver()` / `mcu_reset()`）—— 三级递进，代价由轻到重：
 
-```
-USB 状态 == ACTIVE            -> was_active = true，清计时
-非 ACTIVE 且 3 秒内有按键活动  -> 每 250ms 试一次 usbWakeupHost()
-                              -> 卡满 5 秒且曾经 ACTIVE 过 -> mcu_reset()
-```
+| 级别 | 触发时机 | 动作 | 代价 |
+|------|---------|------|------|
+| 1 | 每 250ms | `usbWakeupHost()` | 无。内部自带 `state == USB_SUSPENDED` 判断；副作用是打开 `DEV_SOF` 中断，激活 LLD 中基于 SOF 的自愈路径 |
+| 2 | 卡满 2s，每 3s 重试 | `restart_usb_driver()` | 主机重新枚举一次。**不重启 MCU**，层状态/粘滞修饰/分体链路/EEPROM 缓存全部保留 |
+| 3 | 卡满 10s 且曾 ACTIVE 过 | `mcu_reset()` | 等效自动拔插一次 |
 
-三重门控：
+第 2 级是官方 API（`tmk_core/protocol/chibios/usb_main.c:361`，声明在 `usb_main.h`）：
+`usbDisconnectBus → usbStop → 停掉所有端点 → 等 50ms → 重新 init/start 所有端点
+→ usbStart → usbConnectBus`。它能直接把卡住的 ChibiOS USB 状态机复位，是比复位 MCU
+好得多的第一道恢复手段。
+
+三重门控（全部三级共用）：
 
 | 门控 | 防什么 |
 |------|--------|
-| 3 秒内有按键活动（且本次上电按过键）| 主机真休眠、用户没在用时保持安静，不反复唤醒主机 |
-| `was_active`（本次上电曾 ACTIVE 过）| 接充电头（有 5V 无主机）时按键不会导致反复复位 |
-| 卡满 5 秒 | 短暂抖动不触发 |
+| 3 秒内有按键活动，且本次上电按过键 | 主机真休眠、用户没在用时保持安静，不反复唤醒主机。显式排除 `last_key_activity == 0`，否则 `timer_elapsed32(0)` 在开机头几秒会被误判成「刚有按键活动」。语义对齐上游 `suspend_wakeup_condition()` |
+| `was_active`（本次上电曾 ACTIVE 过）| 接充电头（有 5V 无主机）时按键不会导致反复复位。**仅第 3 级需要** |
+| 时间门限 | 短暂抖动不触发 |
+
+### 社区调研：这是已知的上游问题，且没有修复
+
+| 来源 | 内容 | 对我们的意义 |
+|------|------|-------------|
+| [qmk#18591](https://github.com/qmk/qmk_firmware/issues/18591) | kb2040（RP2040）从 Windows 休眠恢复后无响应。原文：*"the keyboard is still unresponsive after resuming. If I reset the MCU, the keyboard will be recognized by Windows."* **至今 OPEN**，指派给 KarlK90（QMK 的 RP2040 维护者）| 同一故障类别、同一芯片，且**复位 MCU 就是社区已知的解法**。验证了第 3 级的正确性 |
+| [qmk#19008](https://github.com/qmk/qmk_firmware/issues/19008) | 部分 RP2040 板子按键无法唤醒主机。报告者推测：*"the MCU never enters the USB_DEVICE_STATE_SUSPEND state and thus the usbWakeupHost block never runs"* | RP2040 上远程唤醒本身可能不可靠 → **第 1 级未必生效，实际负担在第 2、3 级**。`restart_usb_driver()` 这个函数就是从这个 issue 贴的上游代码里发现的 |
+| [qmk#7784](https://github.com/qmk/qmk_firmware/pull/7784) | `usb_endpoint_in_send()` 里 `!= USB_ACTIVE` 就丢弃的来源。原文：*"If the status is not USB_ACTIVE, we don't have any endpoints and attempting to send on them crashes. Discard these sends."* | 静默丢弃是**有意为之**（避免崩溃），不是 bug。所以永远不会有上游补丁让非 ACTIVE 状态下也能发送 —— 唯一出路就是想办法回到 ACTIVE |
+| [qmk#14851](https://github.com/qmk/qmk_firmware/issues/14851) | *"This behaviour blocks the keyboard_task() from being invoked, which would then start the matrix_scan()"* | 印证了 `NO_USB_STARTUP_CHECK` 的阻塞循环会挡住主循环，即方案 1 的悖论 |
+
+结论：这不是我们的配置搞坏了什么，而是 RP2040 + ChibiOS USB 栈的一个上游未解问题。
+既然上游没有修复、且社区公认的解法就是复位，那么在自己键盘目录里做自动恢复是合理的选择。
 
 **为什么没选方案 1（删 `NO_USB_STARTUP_CHECK` + `suspend_power_down_kb()` 喂狗）**：
 
@@ -224,10 +241,11 @@ USB 状态 == ACTIVE            -> was_active = true，清计时
 
 | 观察 | 结论 |
 |------|------|
-| 恢复了，枚举时刻**没变** | 是 `USB_SUSPENDED`，远程唤醒 + SOF 自愈生效 |
-| 恢复了，枚举时刻**变了** | 走的是复位兜底 → **不是** SUSPENDED，大概率误检 BUS_RESET 卡在 `USB_READY` |
+| 恢复了，枚举时刻**没变** | 第 1 级生效：是 `USB_SUSPENDED`，远程唤醒 + SOF 自愈救回来了 |
+| 恢复了，枚举时刻**变了**，约 2 秒 | 第 2 级生效：`restart_usb_driver()` 重启 USB 栈救回来了（MCU 没重启）|
+| 恢复了，枚举时刻**变了**，约 10 秒 | 第 3 级生效：连驱动栈重启都无效，只有复位 MCU 能救 → 指向 RP2040 USB 控制器硬件层面卡死 |
 
-顺带留意恢复耗时：**1 秒内** = 唤醒路径；**约 5 秒** = 复位路径。与枚举时刻互相印证。
+三种情况对应的根因不同，所以**恢复耗时和枚举时刻这两个数据必须一起记**。
 把结果追加到上面的观察记录表。
 
 #### 情况 B：仍然需要手动拔插（修复无效）
