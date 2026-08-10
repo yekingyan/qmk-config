@@ -23,10 +23,11 @@
 - [x] 主手卡死自恢复（`dolphin54.c` 启用 RP2040 硬件看门狗，4s 超时，在 `housekeeping_task_kb` 喂狗。QMK 的 `SPLIT_WATCHDOG_ENABLE` 只保护从手）
 - [x] 分体串口死锁根因修复（`serial_vendor.c` 本地覆盖，给两处 `osalSysLock()` 内的无超时忙等加时间上界；CI 有上游漂移与覆盖失效两道守卫）
 - [x] 刷机验证（2026-08-10 14:20 左右手均已刷入，枚举时刻 `14:18:32`；看门狗未误触发）
-- [ ] **假死问题未结案**：22:15 再次复现，已定位为设备级 USB 发送通路（非 keymap、非串口死锁），修复方案待决定
-- [ ] keymap.c 简化（用官方特性替代自定义逻辑，与假死问题无关）
+- [x] USB 失声自恢复（`dolphin5x.c`：非 `USB_ACTIVE` 且有按键活动时节流请求远程唤醒，卡满 5s 则 `mcu_reset()`。见下方「已采用的修复」）
+- [ ] 刷机验证：keymap 新版 + USB 失声自恢复（**两边都要刷**）
+- [ ] **失声问题待长期验证**：修复已上线但未经复现检验，需连续观察 2~3 周
 
-### 偶发卡死：修复已部署，待长期验证
+### 偶发 USB 失声（旧称「卡死」）：修复已部署，待长期验证
 
 **进度时间线**
 
@@ -172,42 +173,95 @@ if (usbGetDriverStateI(endpoint->config.usbp) != USB_ACTIVE) {
 且循环内**不调用** `housekeeping_task()`。当前定义了该宏所以循环被编译掉、休眠期间照常喂狗。
 一旦去掉这个宏，硬件看门狗就会在主机休眠时每 4 秒复位一次。两者互斥。
 
-### 后续排查思路（按刷机后的实际表现分支）
+### 已采用的修复：方案 2（状态无关的 USB 失声自恢复）
 
-### 下一步：待决定的修复方案（分支 C 已确认）
+**先纠正一个用词**：这不是「卡死」，是「**失声**」。MCU、主循环、矩阵扫描、keymap、切层
+全都正常运行，坏的只是 USB 发送通路——报文照样生成，然后被静默丢弃。
 
-每次异常先做一件事：**用下方工具箱读 `LastArrivalDate`**，算出精确存活时长并追加到观察记录表。
+这就是为什么 `_FUN` 层的 `QK_BOOTLOADER` 按得出来：`bootloader_jump()` 在 RP2040 上是
+`reset_usb_boot()`（`platforms/chibios/bootloaders/rp2040.c:19`），而它是
+`rom_func_lookup(ROM_FUNC_RESET_USB_BOOT)` 查表后**跳进 bootrom**
+（`lib/pico-sdk/.../pico/bootrom.h:161`）。bootrom 用自己的 USB 栈从零初始化控制器，
+完全绕过 ChibiOS 驱动和 `usb_endpoint_in_send()` 那道门。
 
-**方案 1 — 上游原生优先（最干净，但只覆盖 SUSPENDED）**
+反过来说：**正因为固件逻辑是活的，软件层自救才可行**。如果真是整机停摆，就只有硬件看门狗
+能救（而它已实测无效——狗一直在被喂）。
 
-1. `config.h` 删掉 `NO_USB_STARTUP_CHECK` → 上游的挂起检测、`usbWakeupHost()`、
-   `suspend_wakeup_init()` 全部原样回来。
-2. 在 `dolphin5x.c` 覆写官方 weak 钩子 `suspend_power_down_kb()` 调 `watchdog_update()`。
-   调用链已核实：`chibios.c:185` → `suspend_power_down()`（`platforms/chibios/suspend.c:20`）
-   → `suspend_power_down_quantum()`（`quantum/quantum.c:560`）→ `suspend_power_down_kb()`
-   （`platforms/suspend.c:21`，weak）。挂起循环每轮都会走到，所以主机休眠期间照样喂狗，
-   解决了「删掉该宏会让看门狗每 4 秒复位」的冲突。
-3. 不加任何自定义 USB 恢复代码。
+**实现**（`keyboards/dolphin5x/dolphin5x.c`，约 40 行，只用三个公开 API：
+`USB_DRIVER.state` / `usbWakeupHost()` / `mcu_reset()`）：
 
-风险：`NO_USB_STARTUP_CHECK` 当初是和 `NO_SUSPEND_POWER_DOWN` 一起为治「唤醒假死」加的，
-删了有可能让原问题回来（但现在有看门狗兜底，处境好于当初）。
-且**若卡住的是 `USB_READY` 而非 `USB_SUSPENDED`，此方案无效**。
+```
+USB 状态 == ACTIVE            -> was_active = true，清计时
+非 ACTIVE 且 3 秒内有按键活动  -> 每 250ms 试一次 usbWakeupHost()
+                              -> 卡满 5 秒且曾经 ACTIVE 过 -> mcu_reset()
+```
 
-**方案 2 — 状态无关兜底（约 15 行，只用公开 API）**
+三重门控：
 
-不动那个宏，在 `housekeeping_task_kb` 里加：`USB_DRIVER.state != USB_ACTIVE`
-且距上次按键在 N 秒内、且本次上电曾经 ACTIVE 过（`was_active` 门控，避免接充电头时反复复位），
-持续超过 M 秒 → `mcu_reset()`。本质是「自动帮你拔插一次」，不管卡在哪个状态都能救。
-用「有按键活动」门控是对齐上游 `suspend_wakeup_condition()` 的语义，
-避免主机真休眠、用户没在用时反复唤醒主机或复位刷屏。
+| 门控 | 防什么 |
+|------|--------|
+| 3 秒内有按键活动（且本次上电按过键）| 主机真休眠、用户没在用时保持安静，不反复唤醒主机 |
+| `was_active`（本次上电曾 ACTIVE 过）| 接充电头（有 5V 无主机）时按键不会导致反复复位 |
+| 卡满 5 秒 | 短暂抖动不触发 |
 
-**恢复方式本身就是判别实验**（无需任何诊断代码）：
+**为什么没选方案 1（删 `NO_USB_STARTUP_CHECK` + `suspend_power_down_kb()` 喂狗）**：
 
-- 恢复了且枚举时刻**没变** → 是 `USB_SUSPENDED`，远程唤醒生效
-- 恢复了且枚举时刻**变了** → 走了复位兜底，说明不是 SUSPENDED
-- 完全没恢复 → 诊断方向错了
+1. 方案 2 已经包含了方案 1 的核心机制。方案 1 起作用的链是
+   `usbWakeupHost()` → `usb_lld_wakeup_host` 宏 → `USB->INTE |= DEV_SOF` → 主机本来就在
+   每 1ms 发 SOF（它压根不认为设备挂起过）→ SOF 中断 → LLD 里
+   `if (state == USB_SUSPENDED) _usb_wakeup()` → 恢复。
+   **这条链只要有人调 `usbWakeupHost()` 就通，不需要删那个宏。**
+2. 方案 1 有个悖论：删掉宏后阻塞循环回来，为了不让主机休眠时误复位**必须**在循环里喂狗，
+   但这样看门狗就永远救不出一个卡住的 suspend 循环——而那恰恰就是本故障。
+3. 方案 1 只覆盖 `USB_SUSPENDED`；若卡在 `USB_READY`，那个循环压根不会进入。
+4. 方案 1 要改目前**正常工作**的休眠行为，有让当初「唤醒假死」回归的风险。
 
-**结案标准**：连续正常使用 2~3 周无异常 → 勾掉状态项，把本节压缩成「已知坑」表里一行。
+### 下次失声时怎么做（操作手册）
+
+#### 情况 A：它自己恢复了（预期结果）
+
+**唯一必须做的事：告诉我，我去读 `LastArrivalDate`。** 这一个数据点就能定案：
+
+| 观察 | 结论 |
+|------|------|
+| 恢复了，枚举时刻**没变** | 是 `USB_SUSPENDED`，远程唤醒 + SOF 自愈生效 |
+| 恢复了，枚举时刻**变了** | 走的是复位兜底 → **不是** SUSPENDED，大概率误检 BUS_RESET 卡在 `USB_READY` |
+
+顺带留意恢复耗时：**1 秒内** = 唤醒路径；**约 5 秒** = 复位路径。与枚举时刻互相印证。
+把结果追加到上面的观察记录表。
+
+#### 情况 B：仍然需要手动拔插（修复无效）
+
+**拔线之前**按顺序做，第 1 步最关键：
+
+1. **先按几个键，等 6 秒。** 恢复逻辑需要「按键活动」才会动作——一发现失声就干瞪眼的话
+   它压根不会尝试。
+2. 还是死的 → 报给我，我读枚举时刻 + 电源状态（D0/D2/D3）+ 系统事件日志
+3. 试连 Vial（raw HID 是否也死）
+4. Space+Tab 进 `_FUN` 再按左上角，看 `RPI-RP2` 是否弹出（确认主循环还活着）
+5. 然后才拔插
+
+若第 1 步按键后仍不恢复，下一步是加**看门狗 SCRATCH 寄存器诊断**：`watchdog_hw->scratch[0..3]`
+未被占用（pico-sdk 的 `watchdog_enable()` 只写 `scratch[4]`，`watchdog_reboot()` 用
+`scratch[4..7]`，bootrom 也只看这几个），这些寄存器跨复位保留，可以在恢复后把上次卡住的
+`USB_DRIVER.state` 值打出来。
+
+#### 情况 C：出现新毛病
+
+| 症状 | 含义 | 应对 |
+|------|------|------|
+| 枚举时刻频繁变化、时不时断一下 | 复位兜底误触发 | `DOLPHIN_USB_STUCK_RESET_MS` 从 5000 调大 |
+| 主机休眠唤醒后异常 | 意外——本方案未改动任何 suspend 配置 | 立刻报 |
+| 打字莫名丢字 | 不该发生，恢复逻辑不碰正常路径 | 报 |
+
+#### 顺带：keymap 新版刷完要验证
+
+- 内侧四个拇指长按能否进 _NAV / _NUM / _SYM / _MOUSE
+- 外侧两个拇指配好后能否进 _FUN / _MEDIA（**刷前先在 Vial 里配好**，否则这两层暂时进不去）
+- Caps Word 下按 `-` 出 `_`、按数字出数字
+- J+K 仍能出 Shift（确认 EEPROM 里的 combo 没丢）
+
+**结案标准**：连续正常使用 2~3 周无失声 → 勾掉状态项，把本节压缩成「已知坑」表里一行。
 
 
 **分支 D — 出现新问题：右半区失灵 / 按键丢失 / 分体不同步**
