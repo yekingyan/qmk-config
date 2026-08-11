@@ -14,7 +14,8 @@
     {"name": "SK_LALT",   "title": "Sticky Alt",            "shortName": "SKAlt"},
     {"name": "SK_LCTL",   "title": "Sticky Ctrl",           "shortName": "SKCtl"},
     {"name": "SK_LSFT",   "title": "Sticky Shift",          "shortName": "SKSft"},
-    {"name": "SW_APP_MAC","title": "⌘-Tab Swapper (Mac)",   "shortName": "SWMac"}
+    {"name": "SW_APP_MAC","title": "⌘-Tab Swapper (Mac)",   "shortName": "SWMac"},
+    {"name": "USB_DIAG",  "title": "USB 失声诊断计数 dump", "shortName": "UDiag"}
   ],
   "layouts": {
     "keymap": [

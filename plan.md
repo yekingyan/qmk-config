@@ -4,14 +4,34 @@
 >
 > **本仓库当前有一个未结案问题：Dolphin54 偶发「USB 失声」。**
 > 用着用着（通常 7~8 小时到几天）键盘突然完全没反应，主机侧却显示设备正常，
-> 历史上只有热插拔 USB 能恢复。已部署三级自动恢复，待长期验证。
+> 历史上只有热插拔 USB 能恢复。三级自动恢复已于 **2026-08-11 01:00 刷入设备**
+> （固件 `0acbfeb` / PR #91）。
+>
+> **✅ 2026-08-11 10:18:39 修复首次被证明有效**：使用中卡约 2 秒 ×2（间隔 20 秒），
+> **两次都自己恢复了，没有拔插** —— 第 2 级 `restart_usb_driver()` 生效，
+> 正是 RP2040 勘误 E15 的预期表现。这是本方案的第一条正向证据。
+>
+> **⚠️ 同时暴露了一个自伤缺陷**：同一天 10:20:49 与 10:22:48 主机弹了「USB 不识别」，
+> 因为第 2 级每 3 秒无条件重试，把主机正在进行的枚举反复掐断。
+> **已在本地修好（加 5s 宽限期），但还没刷进设备** —— 见状态项「待刷机」。
+> 观察窗口重新计起点 `10:22:50`，仍需累计 2~3 周**实际使用**无失声才能结案。
 >
 > ### 用户报「键盘卡死 / 没反应 / 卡了一下」时，第一步：
 >
 > ```bash
-> scripts/kb-diag.sh          # 当前状态 + 与基线对比
+> scripts/kb-diag.sh          # 当前状态 + 与基线对比 + 自动记录事件
+> scripts/kb-diag.sh --history # 看完整事件历史（含「枚举失败」记录）
 > scripts/kb-diag.sh --log    # 若仍是死的，加这个看错误与休眠事件
 > ```
+>
+> 观察期建议常驻盯着，否则事件会漏（Windows 不记录已安装设备的重新枚举）：
+>
+> ```bash
+> nohup scripts/kb-diag.sh --watch 60 >> scripts/.kb-watch.out 2>&1 &
+> ```
+>
+> 另外键盘上（Vial 里配的）`USB_DIAG` 键能把固件侧的计数敲出来，
+> 直接告出是「软件状态卡住」还是「E15 硬件锁死」。
 >
 > 然后问用户两个问题：**卡了大约几秒？期间有没有手动拔插或重启电脑？**
 > 有了这两个答案 + 脚本输出即可判读：
@@ -20,9 +40,10 @@
 > |---------|---------|------|
 > | 枚举时刻**未变** | 卡一下就好了 | 第 1 级 `usbWakeupHost()` 生效（`USB_SUSPENDED`）|
 > | 枚举时刻**变了** | 约 2 秒 | 第 2 级 `restart_usb_driver()` 生效 ← **RP2040 勘误 E15 的预期表现** |
-> | 枚举时刻**变了** | 约 10 秒 | 第 3 级 `mcu_reset()` 生效，连 USB 外设块复位都无效 |
+> | 枚举时刻**变了** | 约 10 秒 | 第 3 级整芯片复位（`watchdog_reboot`）生效，连驱动重启都救不回来 |
 > | 枚举时刻未变 | 一直是死的 | 修复未生效 → 走「情况 B」，**拔线前先按几个键等 6 秒** |
 > | 枚举时刻反复变 | 时不时断一下 | 复位误触发 → 调大 `DOLPHIN_USB_STUCK_RESET_MS` |
+> | 枚举时刻反复变 | **弹「USB 不识别」** | 恢复逻辑打断了自己的枚举 → 调大 `DOLPHIN_USB_RECOVERY_GRACE_MS`（2026-08-11 已修一次）|
 >
 > ### 拿到结论后要做的事
 >
@@ -33,6 +54,12 @@
 > ### 重要前提
 >
 > - **刷机、重启电脑都会改变枚举时刻**，这两件事之后必须重新 `--baseline`，否则误报
+> - **刷机会把 Vial 键位配置清回默认**（`BUILD_ID` 每次构建随机 → VIA magic 必然失配）。
+>   而**默认键位刻意不含任何切层键 —— 这是已定案的设计，不要提议改**。
+>   所以刷完先去 Vial 配切层键是正常流程；配好前 `_FUN` 进不去，
+>   刷完先去 Vial 配切层键是正常流程。详见「状态」里「拇指切层」条目下的定案说明
+> - **进刷机模式只走「Vial 改键 → 按键」这一条路**。板载 reset 按钮在壳里，
+>   要拆机才能按，所以双击物理 reset 在本键盘上**不是可用手段**。详见「怎么进刷机模式」一节
 > - 这个故障**不是** keymap / 切层问题（已用 Vial + console 两条不经过 keymap 的通路排除）
 > - 硬件看门狗对它**无效**（主循环是活的，狗一直在被喂）
 >
@@ -51,6 +78,17 @@
 - [x] GitHub Actions 云编译
 - [x] 键位修改：左侧 Esc 下方改为 `-` (KC_MINS)，右侧最外列按键帽高度重排（由上至下：`+` KC_EQL、`[` KC_LBRC、`]` KC_RBRC、`"` KC_QUOT）
 - [x] 拇指切层：**固件侧不做任何层组合逻辑**，完全交给 Vial 配置。任意键可设成 `LT(n,kc)` / `MO(n)` / `TG(n)` / `TO(n)` / `LM(n,mod)`，改键界面自由指定。默认键位里拇指全是普通按键（新芯片只用基础层即可打字，不会误触切层）
+
+  > ### ✅ 已定案，不要再提议改（2026-08-11 用户明确确认）
+  >
+  > **默认键位就该是「不切层」。切层是进阶用法。刷完后在 Vial 里配切层键是正常流程，不是缺陷。**
+  >
+  > 所以不要再提出「在默认键位里加 `MO(_FUN)` 之类让刷完立刻能切层」的建议。
+  > 由此带来的两个已知后果都是**预期行为**，不需要「修」：
+  > - 刷完后 `_FUN` / `_MEDIA` 进不去，直到在 Vial 里配好切层键
+  > - 因此 `QK_BOOTLOADER` 与 `USB_DIAG` 也按不出来，直到在 Vial 里配好切层键
+  >   （**注意：本键盘不能靠双击物理 reset 兜底，reset 按钮在壳里要拆机**，
+  >   见「怎么进刷机模式」一节）
   - 曾用过两套「双拇指同时按进第三层」实现，**均已于 2026-08-10 移除**：
     - 手写 `space_pressed` 等四个影子状态位：只在捕捉到松手事件时关层，漏一次事件层就永久开着（`_FUN`/`_MEDIA` 大部分位是 `XXXXXXX`，症状为「按键完全失灵」且只能断电）。而按键事件确实可能被 combo 在 `pre_process_record_quantum` 吞掉（`quantum/quantum.c:284`）
     - 官方 `update_tri_layer_state`：无影子状态不会卡死，但条件不成立时会**强制关闭**第三层（`state & ~mask3`），与「单独配一个长按键直接进 _FUN」不兼容——键刚点亮就被抹掉
@@ -63,15 +101,33 @@
     理由见下方「为什么没选方案 1」。
 - [x] 主手卡死自恢复（`dolphin5x.c` 启用 RP2040 硬件看门狗，4s 超时，在 `housekeeping_task_kb` 喂狗。QMK 的 `SPLIT_WATCHDOG_ENABLE` 只保护从手）
   - ⚠️ **对「USB 失声」无效**（已实测：主循环没停、狗一直在被喂、8 小时未触发）。它兜的是另一类风险：主循环真正停摆
-- [x] 分体串口死锁根因修复（`serial_vendor.c` 本地覆盖，给两处 `osalSysLock()` 内的无超时忙等加时间上界；CI 有上游漂移与覆盖失效两道守卫）
-  - ⚠️ **已证明不是「USB 失声」的原因**，属过度设计，保留中。详见「已知坑」表
+- [x] 分体串口死锁根因修复 —— **2026-08-11 已撤销**（`serial_vendor.c` 本地覆盖 + 两道 CI 守卫全部移除）
+  - 撤销理由：它修的上游隐患真实存在，但已证明**不是**「USB 失声」的原因，而那个隐患恰好能被
+    `dolphin5x.c` 里的硬件看门狗兜住（串口死锁会让主循环停摆 → 狗必然触发）。
+    代价却是 vendored 一个上游时序敏感驱动 + 两道 CI 守卫 + 长期版本同步负担。
+  - 反汇编确认已回落到上游版本：忙等上界常量 `0x00000eeb`(3819µs) 已从两个二进制中消失
 - [x] 刷机验证（2026-08-10 14:20 左右手均已刷入，枚举时刻 `14:18:32`；看门狗未误触发）
-- [x] USB 失声三级自恢复（`dolphin5x.c`：检测「状态非 `USB_ACTIVE`」或「硬件帧计数器停滞 >100ms」，配合按键活动门控，依次尝试 `usbWakeupHost()` → `restart_usb_driver()`(2s) → `mcu_reset()`(10s)。详见下方「已采用的修复」）
-- [x] 诊断脚本 `scripts/kb-diag.sh`（一条命令抓齐 USB 状态、运行时长、卡住的修饰键、与基线对比）
-- [ ] **刷机：keymap 新版 + USB 失声三级自恢复**（两边都要刷；刷前先在 Vial 里把外侧两个拇指配成进 _FUN(5) / _MEDIA(6) 的长按键，否则这两层暂时进不去；刷完并重启电脑后跑 `scripts/kb-diag.sh --baseline`）
-- [ ] **失声问题待长期验证**：修复代码已推送（`0acbfeb`）但**尚未刷入设备**，需连续观察 2~3 周
+- [x] USB 失声三级自恢复（`dolphin5x.c`：检测「状态非 `USB_ACTIVE`」或「硬件帧计数器停滞 >100ms」，配合按键活动门控，依次尝试 `usbWakeupHost()` → `restart_usb_driver()`(2s) → `watchdog_reboot()`(10s)。详见下方「已采用的修复」）
+- [ ] **待刷机：2026-08-11 下午这一批改动**（本地已全部编译验证，**尚未提交/推送/刷入**）
 
-### 偶发 USB 失声（旧称「卡死」）：修复已提交，**尚未刷入设备**
+  | # | 改动 | 说明 |
+  |---|------|------|
+  | P0 | **恢复逻辑自伤修复** | 第 2 级做完进 5s 宽限期整段静默，且每个失声周期只做一次。修的是「Windows 弹 USB 不识别」，详见「自伤」一节 |
+  | #5 | **按键活动门控拆两档** | 第 1 级（真会敲主机的那一下）保持 3s；第 2/3 级放宽到 10s（`DOLPHIN_USB_RECOVERY_WINDOW_MS`）。原来一停手就不自救 |
+  | #4 | **固件诊断计数器 + `USB_DIAG` 键码** | 条件(a)/(b) 分别计数、自愈次数、restart 次数、跨复位的芯片复位次数、卡住时的 state。按键用 `send_string` 打出来。字段含义见 `users/vial/dolphin5x.h`。**键位在 `_FUN` 层左上 `QK_BOOTLOADER` 正下方**（矩阵 `[1,0]`，原来是空位） |
+  | #6 | **消除 dolphin52.c/54.c 重复** | 合并为 `users/vial/dolphin5x.c`，走 QMK userspace 机制。CI 新增守卫确认它真的被编进去了 |
+  | #9 | **撤掉 `serial_vendor.c` 本地覆盖** | 连同两道旧 CI 守卫一起移除 |
+  | #2 | **第 3 级改用 `watchdog_reboot()`** | `mcu_reset()` = `NVIC_SystemReset()` 不复位外设；`watchdog_reboot` 经 `psm_hw->wdsel` 复位「除 ROSC/XOSC 之外的一切」，**包含 USB 外设块**。顺带提供可靠的软复位判据 `watchdog_hw->reason` |
+  | #2 | **Sticky master** | 覆盖 `is_keyboard_master_impl()`，软复位后用 `scratch[1]` 沿用主手身份 → 消除「复位后枚举超时 → 判成从手 → `usb_disconnect()` → 设备从主机消失」这条恶性路径 |
+  | #3 | **`scripts/kb-diag.sh` 增强** | 失败枚举检测 + append-only 事件历史 + `--watch` 定时采样。**这一项不需要刷机，已可用** |
+
+  待定未做：#8（wear leveling 扩容，与失声无关，用户已决定先不动）
+- [x] 诊断脚本 `scripts/kb-diag.sh`（一条命令抓齐 USB 状态、运行时长、卡住的修饰键、与基线对比）
+- [x] **刷机：keymap 新版 + USB 失声三级自恢复**（2026-08-11 刷入 `0acbfeb` / PR #91 产物，左右手均已刷；随后重启电脑，当前枚举时刻 `01:00:25`，基线已于 01:01 记录）
+- [ ] **失声问题待长期验证**：修复已刷入设备（`0acbfeb`）。**2026-08-11 10:18:39 已首次证明有效**（第 2 级 `restart_usb_driver` 自动救回，用户仅感到卡 2 秒 ×2、无需拔插）。观察窗口自 `10:18:39` 重新计，需累计 2~3 周**实际使用**无「不可恢复失声」
+- [ ] 刷机后功能验证（Vial 配外侧拇指进 _FUN/_MEDIA、内侧四拇指长按切层、Caps Word、J+K combo）—— 见文末「顺带：keymap 新版刷完要验证」
+
+### 偶发 USB 失声（旧称「卡死」）：修复**已刷入设备**，长期验证中（观察起点 2026-08-11 01:00:25）
 
 **进度时间线**
 
@@ -92,7 +148,18 @@
 | 2026-08-11 00:30 | **用户指出场景不符**：不是休眠唤醒，是正在打字时突然死。据此重查，发现 **RP2040 勘误 E15（USB 设备控制器硬件锁死）**，且 ChibiOS 驱动零 errata 处理 |
 | 2026-08-11 00:37 | 发现原实现的致命盲区：硬件锁死时 `USB_DRIVER.state` 仍为 `USB_ACTIVE`，三级恢复一级都不会触发。加入硬件帧计数器检测（`0acbfeb`）|
 | 2026-08-11 00:46 | 新增诊断脚本 `scripts/kb-diag.sh`（`dac1d34`）|
-| — | **待办：下载 CI 产物、Vial 配好外侧拇指、刷左右两半、重启电脑、跑 `--baseline`** |
+| 2026-08-11 00:43~01:00 | **左右手均已刷入 `0acbfeb`（PR #91 产物）**，含 keymap 新版 + USB 失声三级自恢复 + 硬件帧计数器检测 |
+| 2026-08-11 01:00:25 | 刷完后重启电脑，产生本次枚举（顺序已与用户确认：先刷左右手 → 再重启电脑 → 才记基线）|
+| 2026-08-11 01:01 | 记录基线：枚举时刻 `01:00:25`，D0，9 个接口全 OK，无卡住修饰键，无 USB/HID 错误、无休眠事件 → **长期验证期开始** |
+| 2026-08-11 10:18:39 | **修复首次被证明有效**：使用中卡约 2 秒 ×2（间隔 20 秒），**均自动恢复、无需拔插**。9 个 USB 接口 `LastArrivalDate` 同时跳到 `10:18:39` → 整设备重新枚举 → **第 2 级 `restart_usb_driver()` 生效**，正是 E15 硬件锁死的预期表现。主机侧仍是零错误、零休眠事件 |
+| 2026-08-11 10:20 | 查到 E15 的权威描述：*"USB Device controller will hang if **certain bus errors occur during an IN transfer**"*（TinyUSB `rp2040_usb.h`）→ 触发因子是**总线错误**，而非纯随机。解释了为什么会成簇出现 |
+| 2026-08-11 10:34 | 用户补充：还卡了 1~2 次，**Windows 弹了「USB 不识别」**。据此查 PnP，在键盘同一端口（`Port_#0006.Hub_#0001`）上找到两个失败枚举节点（10:20:49、10:22:48）|
+| 2026-08-11 10:50 | **定位到恢复逻辑自伤**：第 2 级每 3s 无条件重试，而 `restart_usb_driver()` 之后主机重新枚举期间 `state` 必然不是 `USB_ACTIVE` → 检测器恒判「死」→ 反复 `usbDisconnectBus()` 掐断枚举 → 弹窗。且 `stuck_since` 从不重置，第 3 级的 10s 从最初检测算起，会再叠一次 `mcu_reset()` |
+| 2026-08-11 11:00 | 修复：加 5s 宽限期 + 第 2 级每周期只做一次（`grace_since` / `restart_tried`）。本地编译两个键盘均通过，反汇编对比 text 50620 → 50684（+64B）确认改动进了二进制。**尚未刷入设备** |
+| 2026-08-11 11:40~12:10 | **落地一批优化**（本地完成，未刷入）：门控拆两档；诊断计数器 + `USB_DIAG` 键码；`dolphin52.c`/`dolphin54.c` 合并成 `users/vial/dolphin5x.c`；撤掉 `serial_vendor.c` 覆盖与两道旧 CI 守卫（换成 dolphin5x.c 编译守卫）；`kb-diag.sh` 加失败枚举检测 + 事件历史 + `--watch` |
+| 2026-08-11 11:57 | 新脚本刚跑通就抓到又一次自伤：**11:57:21 枚举失败 → 11:57:32 才成功枚举**（设备上仍是有缺陷的 `0acbfeb`）|
+| 2026-08-11 13:00 | 第 3 级从 `mcu_reset()`（=`NVIC_SystemReset()`，**不复位外设**）改为 `watchdog_reboot(0,0,0)`（经 `psm_hw->wdsel` 复位「除 ROSC/XOSC 外的一切」，**含 USB 外设块**）；诊断计数器的软复位判据从 `HAD_POR` 换成语义确定的 `watchdog_hw->reason` |
+| 2026-08-11 13:10 | 实施 **Sticky master**：覆盖 `is_keyboard_master_impl()`，软复位后用 `scratch[1]` 沿用主手身份，消除「复位后枚举超时 → 判成从手 → `usb_disconnect()` → 设备从主机消失」这条恶性路径。反汇编确认覆盖生效（`nm` 里只有一个符号） |
 
 **观察窗口**：历史 MTBF 是 7~8 小时到几天。「几天没复现」不能算修好，至少要连续正常使用 **2~3 周**。
 
@@ -104,9 +171,106 @@
 | 2026-08-10 11:42:20 | 14:18 前 | — | 主动拔插刷机 | — | 修复前 |
 | 2026-08-10 14:18:32 | ~22:15 | **≤7h57m** | 卡死，手动拔插 | — | 已含看门狗 + 串口上界，**两者均无效** |
 | 2026-08-10 22:26:42 | 2026-08-11 00:43 | ~2h17m | 刷机/拔插 | — | 仍是无失声修复的固件 |
+| 2026-08-11 01:00:25 | 2026-08-11 10:18:39 | 9h18m（其中绝大部分是静置） | **失声，自动恢复** | **2**（约 2 秒）| **首次证明修复生效**。用户报「卡了 2 秒，2 次，间隔 20 秒」；9 个 USB 接口的 `LastArrivalDate` 全部同时变为 `10:18:39` → 整设备重新枚举 |
+| 2026-08-11 10:18:39 | 2026-08-11 10:22:50 | ~4m11s | **失声 + 恢复逻辑自伤**，最终自动恢复 | 2（多次）| 中间夹了 **2 次失败枚举**（10:20:49、10:22:48），根因是第 2 级每 3s 重试打断主机枚举。已修复 |
+| 2026-08-11 10:22:50 | 2026-08-11 11:02:32 | ~39m42s | **失声，自动恢复** | **2**（约 2 秒）| **干净的一次**：这次主机侧**没有**新增失败枚举节点（`&0&6` 节点的 arrival 仍是 `10:22:48`）→ 第 2 级一次成功。说明自伤缺陷是概率性的（枚举够快就不会被掐断）|
+| 2026-08-11 11:02:32 | 2026-08-11 11:19:14 | ~16m42s | **失声，自动恢复** | 2 | — |
+| 2026-08-11 11:19:14 | 2026-08-11 11:20:02 | **48 秒** | **自伤循环，实时抓到** | 2（多次）| 11:19:14 成功枚举 → **11:19:44 又一次失败枚举**（`&0&6` 节点 arrival 更新）→ 11:20:02 才再次成功。这就是「第 2 级每 3s 重试打断枚举」的现场录像 |
+| 2026-08-11 11:20:02 | 2026-08-11 11:57:32 | ~37m30s | **失声 + 自伤**，最终自动恢复 | 2（多次）| **11:57:21 枚举失败 → 11:57:32 成功**。新版 `kb-diag.sh` 刚跑通就自动记下了这一条 |
+| 2026-08-11 11:57:32 | 进行中 | — | — | — | 基线已于 12:03 更新。**设备上仍是有自伤缺陷的 `0acbfeb`** |
+
+**频率恶化，需要尽快刷入修复**：08-11 上午已记录 6 次成功重新枚举
+（10:18:39、10:22:50、11:02:32、11:19:14、11:20:02、11:57:32）+ 4 次失败枚举
+（10:20:49、10:22:48、11:19:44、11:57:21），间隔从 40 分钟缩到 48 秒。
+其中失败枚举**全部是自伤**，属于可以立刻消除的部分。
+
+**2026-08-11 上午完整事件序列**（用户体感 + Windows PnP 时间戳对齐后的最终版）
+
+| 时刻 | 来源 | 事件 | 判读 |
+|------|------|------|------|
+| ~10:18:35 | 用户 | 卡约 2 秒 | 第 2 级：`LastArrivalDate` = `10:18:39` |
+| ~10:18:55 | 用户 | 卡约 2 秒（距上次约 20 秒；用户确认「卡完只隔几秒就来找我」，而消息在 10:19:03 到）| **主机侧无任何痕迹** —— 既没有新枚举、也没有失败枚举节点 → 最可能是第 1 级 `usbWakeupHost()` 生效，即那次是 `USB_SUSPENDED` 而非 E15 |
+| 10:20:49 | PnP | **枚举失败**，端口 6 生成 `Unknown USB Device (Device Descriptor Request Failed)` 节点 | 用户看到的「USB 不识别」弹窗。**是恢复逻辑自己掐断的枚举** |
+| 10:22:48→49 | PnP | 同一节点再 arrival→removal 一次 | 又失败一次 |
+| 10:22:50 | PnP | 键盘 9 个接口全部重新 arrival | 终于成功 |
+| 10:29:44 | 脚本 | 连查 6 次（间隔 25 秒）稳定 | 簇结束 |
+
+用户原话：「跟你说完又卡了 1~2 次，电脑还弹出来了一次 usb 不识别的弹窗」、「（每次）都只有几秒」。
+
+**待确认**：10:20:49 → 10:22:50 这约 2 分钟里键盘是不是完全没反应？
+- 若「是」→ 符合「按键活动门控关闭 ⇒ 恢复逻辑不动作 ⇒ 一直死着，直到用户重新按键」
+- 若「不是，中间还能用」→ 说明还有别的机制，需要重查
+
+**⚠️ 2026-08-11 上午出现事件成簇：10:18:39、10:22:50 两次确认枚举 + 用户体感 2 次卡顿，
+集中在 ~4 分钟内**，而历史 MTBF 是「使用中 7~8 小时」。两种解释必须区分开：
+
+**⚠️ 2026-08-11 上午出现事件成簇：10:18:39、10:22:50 两次确认枚举 + 用户体感 2 次卡顿，
+集中在 ~4 分钟内**，而历史 MTBF 是「使用中 7~8 小时」。两种解释必须区分开：
+
+| 解释 | 支持它的证据 | 反对它的证据 |
+|------|-------------|-------------|
+| A. 真实 E15 锁死成簇 | E15 的触发因子是「IN 传输期间的总线错误」，信号完整性一旦变差就会连发；「静置从不复发」也吻合 | 无 |
+| B. 帧停滞检测误报，`restart_usb_driver()` 被白白调用 | 频率异常高 | 误报需要「主循环阻塞 >100ms **且** 阻塞前后帧号恰好相同」，后者概率仅 1/2048（帧号 11 位、每 1ms +1、2048ms 回绕）；若检测无脑误报则会每 2 秒重启一次，而不是几分钟一次 |
+| **C. 恢复逻辑打断自己的枚举（已证实并修复）** | Windows 留下了两个失败枚举节点，端口号与键盘一致；代码里第 2 级每 3s 无条件重试，而枚举期间 `state` 必然不是 `USB_ACTIVE` | 这一条**只解释「一次失声被拖成几分钟的反复枚举」**，不解释最初那次锁死为什么发生（那仍是 A） |
+
+**结论**：4 分钟内的混乱 = **1 次真实锁死（A）+ 恢复逻辑自伤把它放大（C）**。
+C 已修复；A 仍待长期观察。
+
+**判别 B 的一条硬逻辑**：恢复动作有「3 秒内有按键活动」门控，
+所以**任何一次自动恢复都必然发生在用户正在打字的瞬间**，用户一定能感觉到那 ~2 秒。
+因此「枚举时刻变了但用户完全没感觉」= 强烈指向别的原因（例如线材接触不良导致的
+主机侧重新枚举），而不是本修复动作。→ **每次发现枚举时刻变化，务必问用户当时有没有卡顿感**。
+
+**已排除的环境因素**：键盘**直连主板 USB 3.0 根 Hub 的 Port #6**（Intel USB 3.20 xHCI，
+PCI 0:20.0），**中间没有任何外接 hub**（已查 PnP 父设备链）。所以不是 hub 供电/带宽问题。
+
+**下一步建议（尚未实施）**：在 `dolphin5x.c` 里加一组 RAM 计数器并用一个 Vial 键码
+`send_string` 打出来，一次性把上面的 A/B 之争定案：
+
+| 计数器 | 回答什么问题 |
+|--------|-------------|
+| 条件 (a) 命中次数（`state != USB_ACTIVE`）| 是软件状态机卡住 |
+| 条件 (b) 命中次数（帧号停滞）| 是 E15 硬件锁死 |
+| 「检测到但 2 秒内自愈、未触发第 2 级」次数 | **这个数很大 = 检测器过于敏感**，即解释 B |
+| `restart_usb_driver()` 实际调用次数 | 与用户体感的卡顿次数对账 |
+| 卡住时的 `USB_DRIVER.state` 值 | 若是 (a)，区分 `USB_SUSPENDED`(5) 还是 `USB_READY`(2) |
+
+RAM 静态变量足够统计第 2 级（`restart_usb_driver()` 不重启 MCU，变量不丢）；
+若要跨第 3 级芯片复位存活，用 `watchdog_hw->scratch[0..3]`（未被 pico-sdk 占用；pico-sdk 只用 `[4..7]`）。
+
+**2026-08-11 10:18 事件详情**（第一条有效证据）
+
+- 用户体感：卡约 2 秒，发生 2 次，间隔约 20 秒，**两次都自己恢复了，没有拔插**
+- 脚本读数：枚举时刻 `01:00:25` → `10:18:39`，9 个接口（3 个 USB 功能 + 5 个 HID 子设备 + 复合父设备）
+  的 `LastArrivalDate` 全部同时变化，`LastRemovalDate` 全空 → 整设备重新枚举，非单接口重绑
+- 主机侧：D0、9 接口全 `status=OK/problem=none`、无卡住修饰键、
+  **系统日志零条 USB/HID 错误**、零条 Kernel-Power 42/107（没休眠）
+- `Kernel-PnP/Configuration` 与 `Device Management` 两个日志近 12 小时**无任何记录** →
+  Windows 对「已安装设备的重新枚举」不留痕，所以**主机日志无法用来数事件次数**，
+  只能靠 `LastArrivalDate`（会被后一次覆盖）+ 用户体感
+- 判读：**第 2 级 `restart_usb_driver()` 生效**。2 秒 = 100ms 帧停滞检测 + 2000ms 门限 +
+  50ms 驱动重启 + 主机重新枚举，时间账完全对得上。不是第 1 级（那不会重新枚举），
+  也不是第 3 级（那要 10 秒）
+- **未能确定的点**：`LastArrivalDate` 只保留最后一次，所以只能确认 **1 次**重新枚举。
+  两种可能：(i) 两次都是第 2 级，`10:18:39` 是第二次，用户过了 ~24 秒才来报；
+  (ii) `10:18:39` 是第一次，第二次走的是第 1 级远程唤醒（不重新枚举）。
+  区分办法：**问用户「第二次卡完到你发消息隔了多久」** —— 若明显超过 20 秒则是 (i)
+
+**检查点记录**（同一枚举周期内的中途查验，用于攒证据）
+
+| 查验时刻 | 已存活 | 枚举时刻是否变 | 用户体感 | 备注 |
+|----------|--------|---------------|---------|------|
+| 2026-08-11 10:07 | 9h07m | 未变 | 正常 | 整夜静置未打字。**这条基本不算证据**：用户明确指出「整夜、甚至整几天没用，回来都不假死」是一贯现状，故障只在使用中触发。Kernel-Power 42/107 均为零 → 电脑没睡、USB 总线全程活跃，但无按键活动 |
+| 2026-08-11 10:19 | 0h00m30s | **变了**（01:00:25 → 10:18:39）| 卡 2 秒 ×2，间隔 20 秒，均自恢复 | 见上方「2026-08-11 10:18 事件详情」。**修复首次被证明有效** |
+| 2026-08-11 10:26 | 0h03m48s | **又变了**（10:18:39 → 10:22:50）| **待确认** | 第三次事件。已把基线更新为 `10:22:50` |
+| 2026-08-11 10:29:44 | 0h07m | 未变（连查 6 次，间隔 25 秒）| 正常 | 簇结束，恢复稳定 |
+
+> **有效观察时长只计「实际使用时段」。** 静置（不打字）期间从不复发是本故障的一贯特征，
+> 所以 wall-clock 存活时长会系统性高估。历史 MTBF「7~8 小时」指的是**使用中**的时长。
+> 结案标准里的「连续 2~3 周」应按**实际正常使用的天数**计，静置日不计入。
 
 > **追加新记录时**：填「生效级别」列（1=远程唤醒/枚举时刻未变，2=`restart_usb_driver`/约 2 秒，
-> 3=`mcu_reset`/约 10 秒，—=未恢复需手动拔插）。判读规则见文档顶部「接手指引」表格。
+> 3=整芯片复位 `watchdog_reboot`/约 10 秒，—=未恢复需手动拔插）。判读规则见文档顶部「接手指引」表格。
 
 **现象**：正常使用中（**并非休眠唤醒场景**）忽然整机无响应，键盘 HID、Vial(raw HID)、
 console **三条 USB IN 端点同时失效**，主机侧却显示设备 Status=OK / D0 / 无错误 / 不重新枚举，
@@ -135,18 +299,38 @@ console **三条 USB IN 端点同时失效**，主机侧却显示设备 Status=O
 
 真正对口的是 **RP2040-E15：USB 设备控制器会硬件锁死**。
 
-- pico-sdk 1.5.0 起提供官方缓解 `PICO_RP2040_USB_DEVICE_UFRAME_FIX`，
-  发布说明称「**This fix is required for correctness**」
-- 文档记载触发条件是接 Pi 4 / Pi 400（VL805 主控），但树莓派官方论坛有专帖
+**E15 的确切触发条件**（2026-08-11 查实，TinyUSB `src/portable/raspberrypi/rp2040/rp2040_usb.h` 里的原话）：
+
+```c
+// RP2040-E15: USB Device controller will hang if certain bus errors occur during an IN transfer.
+```
+
+这句话改变了对本故障的理解：**触发因子是「IN 传输期间发生总线错误」，不是纯随机**。推论：
+
+- 我们的三条失效通路（键盘 HID、raw HID、console）**全都是 IN 端点** —— 正好落在 E15 的触发面上
+- 总线错误（CRC / bit-stuffing / 数据序列错误）由信号完整性决定：线材、USB 口、
+  是否经 hub、附近的 USB3 / 无线干扰。所以**故障率与物理层有关，且会成簇出现**
+  —— 这直接解释了 2026-08-11 那次「20 秒内两次」：一段时间内总线错误密集，就连着锁死两次
+- 也解释了为什么「静置不打字时从不复发」：没有 IN 传输就没有触发窗口
+- **降低发生率的物理手段**（零代码成本，值得先试）：换 USB 口（优先直连主板后置口、
+  避开 hub 和 USB3 口旁边）、换更短更好屏蔽的线、远离无线接收器
+
+**为什么没法照搬官方缓解。** pico-sdk 1.5.0 起提供 `PICO_RP2040_USB_DEVICE_UFRAME_FIX`，
+发布说明称「**This fix is required for correctness**」，但：
+
+- 它只挂在 TinyUSB 构建上（`src/rp2_common/tinyusb/CMakeLists.txt:34`），
+  而 QMK 用的是 ChibiOS 自己的 USB 驱动
+- ChibiOS 的 RP2040 USB 驱动（`lib/chibios-contrib/os/hal/ports/RP/LLD/USBDv1/`）中
+  **没有任何** errata / E15 / uframe 相关处理（已 grep 确认）
+- 且 TinyUSB 那份实现是**专门针对双缓冲 Bulk IN 端点**的（`hw_endpoint.e15_bulk_in`
+  只在 `transfer_type == TUSB_XFER_BULK && dir == IN` 时置位），做法是常开 SOF 中断、
+  在 SOF ISR 里按微帧节奏补挂 buffer control。键盘只有 Interrupt IN 端点，
+  **这套代码无法直接移植**。所以「反应式恢复」（当前方案）仍是可行度最高的路线
+- 该勘误连数据手册都没收录（见 [pico-sdk#1260](https://github.com/raspberrypi/pico-sdk/issues/1260)）
+- 现场证据：树莓派官方论坛专帖
   [Erratum E15 seen in field without VL805](https://forums.raspberrypi.com/viewtopic.php?t=374030)：
   *"the RP2040 USB hardware lockup described in Erratum E15 can be triggered under
-  more conditions than those listed in the erratum"*
-- 该勘误连数据手册都没收录（见 [pico-sdk#1260](https://github.com/raspberrypi/pico-sdk/issues/1260)）
-
-**关键：QMK 拿不到这个缓解。** 已 grep 确认 ChibiOS 的 RP2040 USB 驱动
-（`lib/chibios-contrib/os/hal/ports/RP/LLD/USBDv1/`）中 **没有任何** errata / E15 /
-uframe 相关处理；pico-sdk 里那个宏只挂在 TinyUSB 构建上
-（`src/rp2_common/tinyusb/CMakeLists.txt:34`），而 QMK 用的是 ChibiOS 自己的 USB 驱动。
+  more conditions than those listed in the erratum"* —— 不限于文档里写的接 Pi 4/400(VL805)
 
 **这一条改变了检测方式。** 硬件锁死后控制器不再产生任何中断，而
 `_usb_suspend()` / `_usb_reset()` 只在中断里被调用，所以 `USB_DRIVER.state`
@@ -232,36 +416,39 @@ if (usbGetDriverStateI(endpoint->config.usbp) != USB_ACTIVE) {
 - **主机休眠/唤醒**：查过 Windows 事件日志，14:00~22:15 期间无 Kernel-Power 42/107。
 - **修饰键卡住**：`GetAsyncKeyState` 实测全部为 up。
 
-**已做但被证明对本故障无效的处置**（保留，各自兜别的风险）：
+**已做但被证明对本故障无效的处置**：
 
-- RP2040 硬件看门狗：只能救「主循环停摆」，本故障主循环是活的，狗照喂 → 无效。
+- RP2040 硬件看门狗：只能救「主循环停摆」，本故障主循环是活的，狗照喂 → 无效。**保留**，它兜的是另一类风险。
 - `serial_vendor.c` 忙等上界：修的是真实上游隐患，但已证明不是本故障原因。
-  **这块是过度设计**——代价是 vendored 一个上游时序敏感驱动 + 两道 CI 守卫 + 版本同步负担，
-  而它所修的隐患恰好能被硬件看门狗兜住。是否撤掉待定。
+  **2026-08-11 已撤销**，理由见下。
 
+**已撤销：`serial_vendor.c` 本地覆盖（2026-08-11）**
 
-**根因修复：本地覆盖上游驱动（已实施）**
+曾经的做法：把上游 `platforms/chibios/drivers/vendor/RP/RP2040/serial_vendor.c` 复制到
+两个键盘目录下，给其中两处 `osalSysLock()` 内的无超时忙等加时间上界
+（上界 = 8×11bit/230400bps 的 10 倍 ≈ 3819µs）。覆盖机制靠 VPATH：
+`serial_vendor.c` 以**裸文件名**通过 `QUANTUM_LIB_SRC += serial_$(SERIAL_DRIVER).c` 加入编译，
+而 `builddefs/build_keyboard.mk` 的搜索顺序是
+`KEYMAP_PATH` → `USER_PATH` → `KEYBOARD_PATHS` → `COMMON_VPATH`，键盘目录先于平台驱动目录。
+配套还有两道 CI 守卫（上游漂移 sha256 校验 + 覆盖生效校验）。
 
-覆盖机制：`serial_vendor.c` 通过 `QUANTUM_LIB_SRC += serial_$(SERIAL_DRIVER).c` 以**裸文件名**
-加入编译，靠 VPATH 解析；`builddefs/build_keyboard.mk` 中顺序为
-`KEYMAP_PATH` → `USER_PATH` → `KEYBOARD_PATHS` → `COMMON_VPATH`，键盘目录**先于**平台驱动目录。
-所以 `keyboards/dolphin5x/serial_vendor.c` 会覆盖平台版本。
-**依赖仓库 vial-qmk 完全不需要修改，不用提 MR。**
+**为什么撤掉**：它修的隐患真实存在，但
 
-改动内容：给那两处忙等加时间上界（`osalOsGetSystemTimeX()` / `osalTimeDiffX()`，X 后缀可在
-临界区内安全调用；上界 = 8×11bit/230400bps 的 10 倍 ≈ 3819µs）。超时后放弃本次分体事务，
-协议层已能容忍单次失败。已在反汇编中确认两处的超时常量 `0x00000eeb`(3819) 与条件出口均存在。
+1. 已证明**不是**「USB 失声」的原因（那类故障会让主循环停摆、看门狗必然触发，实测未触发）
+2. 那个隐患恰好能被硬件看门狗兜住 —— 串口死锁 → 主循环停摆 → 4s 后狗复位
+3. 代价却是：vendored 一个**上游时序敏感驱动**、两道 CI 守卫、以及长期的版本同步负担
 
-**上游漂移的两道 CI 守卫**（都已本地实跑验证通过与失败两条路径）：
+反汇编已确认回落到上游版本：上界常量 `0x00000eeb`(3819) 已从两个二进制中消失。
 
-1. `.github/vendored-upstream.sha256` + `sha256sum -c`：校验上游原文是否仍是基线版本
-   （基线 commit `dd43959ae5c08d8a28d38a1acf7b04e86b14a344`，
-   sha256 `81c1be5e...db8f`）。上游一改动就让构建失败，逼迫同步而不是悄悄用旧版。
-   失败时会打印上游新版与本仓库副本的 diff。
-2. 构建后 grep 编译日志，确认编译的是 `keyboards/<kb>/serial_vendor.c` 而非平台目录那份。
-   若上游改变了该文件加入 SRC 的方式，覆盖会静默失效、上界随之丢失，此守卫让它显式报错。
+若哪天真需要重新施加上界，做法记录在此以备复用：用 `osalOsGetSystemTimeX()` /
+`osalTimeDiffX()`（X 后缀可在临界区内安全调用）给那两处忙等加时间上界，
+超时后放弃本次分体事务 —— 协议层已能容忍单次失败。
 
-另外 artifact 上传加了 `if-no-files-found: error`，产物缺失即失败。
+**配置侧备选降概率手段**（未应用）：调低分体串口速率
+`#define SELECT_SOFT_SERIAL_SPEED 2`（230400 → 115200）。给 PIO 更多时序余量，
+但只降概率不消除死锁，且无证据表明异常与速率相关。
+注意这个宏对 vendor/PIO 驱动**同样生效**（`serial_vendor.c` 包含 `serial_usart.h`，
+后者把它映射成 `SERIAL_USART_SPEED`）。
 
 **配置侧备选降概率手段**（未应用）：调低分体串口速率 `#define SELECT_SOFT_SERIAL_SPEED 2`
 （230400 → 115200）。给 PIO 更多时序余量，但只降概率不消除死锁，且无证据表明异常与速率相关。
@@ -304,25 +491,295 @@ if (usbGetDriverStateI(endpoint->config.usbp) != USB_ACTIVE) {
 
 **恢复动作**（三级递进，代价由轻到重，共用同一套按键活动门控）：
 
+**恢复动作**（三级递进，代价由轻到重）：
+
 | 级别 | 触发时机 | 动作 | 对 E15 有效？ | 代价 |
 |------|---------|------|--------------|------|
-| 1 | 每 250ms | `usbWakeupHost()` | ✗（state 仍 ACTIVE，内部判断不通过）| 无 |
-| 2 | 卡满 2s，每 3s 重试 | `restart_usb_driver()` | **✓ 外设块硬件复位** | 主机重新枚举，MCU 不重启 |
-| 3 | 卡满 10s 且曾 ACTIVE 过 | `mcu_reset()` | ✓ | 等效自动拔插一次 |
+| 1 | 每 250ms（且尚未做过第 2 级），**窄门控 3s** | `usbWakeupHost()` | ✗（state 仍 ACTIVE，内部判断不通过）| 无 |
+| 2 | 卡满 2s，**每个失声周期只做一次**，宽门控 10s | `restart_usb_driver()`，随后进入 5s 宽限期 | **✓ 外设块硬件复位** | 主机重新枚举，MCU 不重启 |
+| 3 | 第 2 级做过 + 宽限期已过 + 累计卡满 10s + 曾 ACTIVE 过 | **`watchdog_reboot(0,0,0)`**（不是 `mcu_reset()`，理由见下）| ✓ | 等效自动拔插一次 |
 
-三重门控（全部三级共用）：
+**为什么第 3 级用 `watchdog_reboot()` 而不是 QMK 的 `mcu_reset()`**（2026-08-11 改）：
 
-| 门控 | 防什么 |
+1. **复位更彻底。** RP2040 上 `mcu_reset()` 就是 `NVIC_SystemReset()`
+   （`platforms/chibios/bootloaders/rp2040.c:16`），只复位处理器子系统，**不复位外设**。
+   而 `watchdog_reboot()` → `_watchdog_enable()` 会先设：
+   ```c
+   // lib/pico-sdk/src/rp2_common/hardware_watchdog/watchdog.c:40
+   // Reset everything apart from ROSC and XOSC
+   hw_set_bits(&psm_hw->wdsel, PSM_WDSEL_BITS & ~(PSM_WDSEL_ROSC_BITS | PSM_WDSEL_XOSC_BITS));
+   ```
+   **USB 外设块也在这个范围里**。既然首选根因是 E15 那种 USB 控制器硬件锁死，
+   第 3 级理应用能真正复位 USB 块的那种复位。
+2. **给出可靠的「这次是软复位」信号**：`watchdog_hw->reason != 0`，诊断计数器靠它跨复位累计。
+
+`delay_ms = 0` 走 `CTRL.TRIGGER` 立即复位。不会误进 UF2：双击复位的 magic 在开机 500ms 后
+已清零，而第 3 级最早也是开机十几秒后才可能触发。
+
+**跨复位判据为什么用 `watchdog_hw->reason` 而不是 `HAD_POR`**：
+
+| 判据 | 可靠性 |
 |------|--------|
-| 3 秒内有按键活动，且本次上电按过键 | 主机真休眠、用户没在用时保持安静，不反复唤醒主机。显式排除 `last_key_activity == 0`，否则 `timer_elapsed32(0)` 在开机头几秒会被误判成「刚有按键活动」。语义对齐上游 `suspend_wakeup_condition()` |
-| `was_active`（本次上电曾 ACTIVE 过）| 接充电头（有 5V 无主机）时按键不会导致反复复位。**仅第 3 级需要** |
-| 时间门限 | 短暂抖动不触发 |
+| `watchdog_hw->reason`（WATCHDOG_BASE + 0x08）| ✅ 复位值为 0（`WATCHDOG_REASON_RESET _u(0)`），上电必读到 0；看门狗复位置 TIMER/FORCE 位。**pico-sdk 自己的 `watchdog_caused_reboot()` 就依赖它跨复位保留** |
+| `vreg_and_chip_reset->chip_reset` 的 `HAD_POR` | ❌ 软复位之后读什么，取决于该寄存器块本身是否也被 `psm_hw->wdsel` 那次复位带走 —— 源码里读不出确定答案，所以不用 |
+
+反汇编核对（`LTO_ENABLE=no` 后看 `keyboard_post_init_kb`）：
+
+```asm
+ldr  r3, [pc, #24]   ; r3 = 0x40058000 = WATCHDOG_BASE
+ldr  r2, [r3, #8]    ; WATCHDOG->REASON   (offset 0x08 ✓)
+cmp  r2, #0
+bne  ...             ; 软复位 → 保留计数
+str  r2, [r3, #12]   ; SCRATCH0 = 0       (offset 0x0C ✓)
+movs r0, #250 ; lsls r0, #4   ; 4000ms
+bl   watchdog_enable
+```
+`housekeeping_task_kb` 里也确认是 `bl watchdog_reboot`，已无 `mcu_reset` / `NVIC_SystemReset` 调用。
+
+> **⚠️ 第 2 级绝对不能反复重试（2026-08-11 血的教训）。** 见下方
+> 「自伤：恢复逻辑打断自己的枚举」。
+
+门控（2026-08-11 起按级别分档）：
+
+| 门控 | 适用级别 | 防什么 |
+|------|---------|--------|
+| `DOLPHIN_USB_ACTIVITY_WINDOW_MS` = 3000：3 秒内有按键活动 | **仅第 1 级** | 主机真休眠、用户没在用时保持安静，不反复唤醒主机。语义严格对齐上游 `suspend_wakeup_condition()` |
+| `DOLPHIN_USB_RECOVERY_WINDOW_MS` = 10000：10 秒内有按键活动 | **第 2/3 级** | 同上，但放宽。**为什么要放宽**：用户一发现失声就停手不按键，3 秒窗口一关自救压根不会启动 —— 操作手册里「拔线前先按几个键等 6 秒」就是为此打的补丁，现在固件侧自己扛住 |
+| 本次上电按过键（`last_key_activity != 0`）| 全部 | 必须显式排除 0，否则 `timer_elapsed32(0)` 在开机头几秒会被误判成「刚有按键活动」 |
+| `was_active`（本次上电曾 ACTIVE 过）| **仅第 3 级** | 接充电头（有 5V 无主机）时按键不会导致反复复位 |
+| 时间门限 | 全部 | 短暂抖动不触发 |
+| **恢复后 5s 宽限期（`grace_since`）** | 全部（宽限期内连第 1 级都不做）| **防止打断主机正在进行的枚举**。枚举全程 `state != USB_ACTIVE`，检测器恒判为「死」，不豁免就会自伤 |
+
+**诊断计数器**（2026-08-11 加，用 Vial 里的 `USB_DIAG` 键码 `send_string` 打出来）：
+
+```
+USBDIAG a=3 b=12 heal=9 rst=4 mcu=1 st=4 up=1234s
+```
+
+| 字段 | 含义 | 怎么读 |
+|------|------|--------|
+| `a` | 条件 (a) `state != USB_ACTIVE` 命中次数 | 大 → 软件状态机卡住 |
+| `b` | 条件 (b) 帧号停滞命中次数 | 大 → **E15 硬件锁死** |
+| `heal` | 检测到失活但在第 2 级触发前就自愈 | **大 → 检测器过敏**，该调门限 |
+| `rst` | `restart_usb_driver()` 调用次数 | 与用户体感的卡顿次数对账 |
+| `mcu` | 第 3 级整芯片复位次数 | 跨复位累计，存在 `watchdog_hw->scratch[0]`（magic `0xD54C`；`watchdog_hw->reason == 0` 即上电复位，清零）|
+| `st` | 最近一次判定失活时的 `USB_DRIVER.state` | 2=`USB_READY` 4=`USB_ACTIVE` 5=`USB_SUSPENDED`。配合 `a` 能定位卡在哪个状态 |
+| `up` | 本次上电已运行秒数 | — |
+
+为什么不用 console：`dprintf` 走的是同一条会被静默丢弃的 USB IN 通路，
+恰好在需要它的时候没有输出（2026-08-10 实测：正常时能滚 log，失声后一行不出）。
+
+### ⚠️ 自伤：恢复逻辑打断自己的枚举（2026-08-11 发现并修复）
+
+**症状**：Windows 弹出「无法识别的 USB 设备」。
+
+**证据**（Windows PnP 查询）：
+
+```
+USB\VID_0000&PID_0002\5&30741CDD&0&6
+  FriendlyName = Unknown USB Device (Device Descriptor Request Failed)
+  LocationInfo = Port_#0006.Hub_#0001     ← 与键盘完全同一个物理口
+  install = 10:20:49    arrival = 10:22:48    removal = 10:22:49
+键盘本体 USB\VID_594B&PID_D054\VIAL:F64C2B3C
+  LocationInfo = Port_#0006.Hub_#0001
+  arrival = 10:22:50                       ← 失败两次之后才成功
+```
+
+**根因（读代码确认，不是猜）**：`restart_usb_driver()` 之后主机要重新枚举，而
+`USB_DRIVER.state` 要到 SET_CONFIGURATION 才会回到 `USB_ACTIVE`
+（`usbStop()` → `USB_STOP`，`usbStart()` → `USB_READY`，配置完成 → `USB_ACTIVE`）。
+也就是说**整个枚举过程中 `usb_is_dead()` 恒为真**。旧实现没有区分
+「还没救回来」和「正在枚举」，于是：
+
+1. 每 3 秒（`DOLPHIN_USB_RESTART_RETRY_MS`）再 `restart_usb_driver()` 一次
+   → `usbDisconnectBus()` 把上拉拔掉，主机正在读描述符就被掐断
+   → **Device Descriptor Request Failed + 弹窗**
+2. `stuck_since` 从不重置，所以第 3 级的 10 秒是从**最初那次检测**算起
+   → 前面刚重启过驱动，10 秒一到又叠加一次 `mcu_reset()`
+3. 只要用户还在按键（门控开着），1 和 2 就循环，枚举可能几分钟都成不了
+
+**修复**：第 2 级做完后设 `grace_since`，宽限期（`DOLPHIN_USB_RECOVERY_GRACE_MS`，
+默认 5000ms）内**整段静默、连第 1 级都不做**，把总线完全交给主机；
+每个失声周期第 2 级**只做一次**（`restart_tried`），宽限期过完还没活就直接升级到
+第 3 级，而不是反复重启驱动。新的最坏时间线：
+`检测 → 2s 重启驱动 → 5s 宽限 → 累计 10s 仍死则整芯片复位`。
+
+**教训**：给「不健康」写自动恢复时，必须把「恢复动作本身造成的不健康」豁免掉，
+否则恢复逻辑会和自己打架。
+
+### 外部建议核实（2026-08-11，逐条查源码 + 查板子资料）
+
+有人给了一份「YD-RP2040 分体假死」通用排查清单。**方向大体没错（都指向 USB/板子层面），
+但具体机制大半对不上我们的配置。** 结论表如下，避免以后重复走一遍：
+
+| 建议 | 核实结果 |
+|------|---------|
+| ①「VBUS 检测导致逻辑自杀：GP24 接了按键会电平波动，键盘误以为自己从主机变从机」 | **机制不成立**。GP24 = YD-RP2040 的 USRkey 用户按键（资料属实），但 ChibiOS 上 `SPLIT_USB_DETECT` **不读任何 GPIO**：`split_util.c:68` 的 `usb_bus_detected()` 轮询的是 `usb_connected_state()`，而它就是 `usbGetDriverStateI(&USB_DRIVER) == USB_ACTIVE`（`usb_util.c:25`）。更关键：主从只在 `split_pre_init()` 里判一次并缓存进 `split_config.master`，`is_keyboard_master()` 只返回缓存值 → **运行中不可能翻转** |
+| ①-b「如果已有 `SPLIT_USB_DETECT` 就试着关掉」 | **做不到**。`platforms/chibios/chibios_config.h:19-21`：`#ifndef USB_VBUS_PIN` → `#define SPLIT_USB_DETECT`，即 ChibiOS 在没有专用 VBUS 引脚时强制打开。而 YD-RP2040 恰好「VBUS not available（有二极管挡着）」，接外部 VBUS_SENSE 很麻烦 —— 这也正是 Piantor 官方不推荐 YD-RP2040 的原因 |
+| ①-c「EE_HANDS 完全不依赖引脚检测 USB 状态」 | **概念混淆**：EE_HANDS 管的是「我是左手还是右手」，主从判定仍然靠 USB 检测，没有替代关系。但**这条歪打正着有价值**，见下方「新发现的风险」 |
+| ②「`SERIAL_DRIVER = vendor` 最稳」 | ✅ 我们本来就是（`rules.mk`）|
+| ②-b「`SELECT_SOFT_SERIAL_SPEED` 设太快就降到 3/4」 | 机械上**成立**（我一开始以为对 vendor 无效，是错的）：`serial_vendor.c` 包含 `serial_usart.h`，后者把 `SELECT_SOFT_SERIAL_SPEED` 映射成 `SERIAL_USART_SPEED`，默认 1 = 230400bps。但对本故障**无意义**：分体串口通路已被排除（三条 USB IN 端点同时死，与分体链路无关；串口死锁会让主循环停摆、看门狗必触发，实测未触发）|
+| ③ ESD / 静电干扰 | ✅ **方向正确且是补强**。E15 的触发因子正是「IN 传输期间的总线错误」，ESD/干扰就是总线错误的来源之一。这条与我们的根因判断同向 |
+| ④ RGB 亮度 / 供电 brownout / `RGBLIGHT_LIMIT_VAL` | **不适用**。`RGBLIGHT_ENABLE = no` + `RGB_MATRIX_ENABLE = no`，本来就一颗灯都不亮（GP23 是 YD-RP2040 的 WS2812 脚，被我们当按键用，正是为此显式关掉的）|
+| ⑤ 看门狗 / 任务堆积 / 自定义代码里的死循环 | **已做且已证明无效**。RP2040 硬件看门狗 4s 已启用，实测主循环没停、狗一直在被喂。唯一的无超时忙等在上游 `serial_vendor.c`，已本地覆盖加上界 |
+| ⑥ 换短线 / 查 Type-C 座接触 | ✅ 有价值，与 E15 同向。已列为零成本先试项 |
+| ⑦「开 `CONSOLE_ENABLE` 看假死前最后一刻打印什么」 | **明确行不通**。`dprintf` 自身也走 `usb_endpoint_in_send()`，状态一变日志同时被静默丢弃。实测：正常时 console 能滚 log，失声后一行不出 |
+| ⑧ Vial dynamic keymap 写 Flash 导致短暂无响应 | **不适用**。不是持续写 flash 的场景；flash 写入是 ms 级，4s 看门狗不会触发；也不会误报帧号检测（阻塞前后帧号必然已推进）|
+| ⑨「需要进一步区分 MCU 卡死 vs USB 栈异常」 | ✅ 说得对，但**这正是我们已经做完的事**。三条独立证据定案：看门狗未触发 + 失声时能进 bootloader + Vial/console 同时死 → MCU 活着，坏的是设备级 USB 发送通路 |
+| ⑩ 换成官方 Pico 做对照实验 | 合理但要正确理解它能测什么：**E15 是全系 RP2040 的硅片勘误**（TinyUSB 对所有 `PICO_RP2040` 都启用 `CFG_TUSB_RP2_ERRATA_E15`），换官方 Pico **不能消除 E15**，只能改变发生率（ESD 防护、USB-C 座质量、信号完整性）。所以这个实验测的是「板子质量」，不是「有没有 E15」 |
+
+> 补充：pico-sdk 还有个 **RP2040-E5**（*"USB device fails to exit RESET state on busy USB bus"*）
+> 的缓解 `rp2040_usb_device_enumeration_fix()`，看着很像我们的「枚举失败」。但两条都用不上：
+> 它只对 `rp2040_chip_version() == 1`（B0/B1 硅片）生效，**且实现方式是把 GPIO15 劫持成
+> USB debug mux 来强制 LS_J** —— 而 GP15 在我们两个键盘里都是矩阵按键。
+
+### ⚠️ 新发现的风险：第 3 级复位可能把键盘彻底打死
+
+这是核实上面第 ①/①-c 条时顺带查出来的，**比原建议提的问题严重**：
+
+```c
+// quantum/split_common/split_util.c
+bool is_keyboard_master_impl(void) {
+    bool is_master = usb_bus_detected();      // 最多等 SPLIT_USB_TIMEOUT = 2500ms
+    if (!is_master) { usb_disconnect(); }     // 判定为从手 → 直接关掉 USB
+    return is_master;
+}
+bool is_keyboard_left_impl(void) {
+    ...
+#else   // 我们走的就是这个默认分支（MASTER_LEFT）
+    return is_keyboard_master();              // 左右手身份 = 主从身份
+#endif
+}
+```
+
+也就是说 `MASTER_LEFT` 下 **「我是左手」这件事是从「我抢到了 USB」推导出来的**。
+于是第 3 级复位有一条恶性路径：
+
+1. `watchdog_reboot()` → 芯片重启 → `split_pre_init()` 重新判主从
+2. 若重启后 **2500ms 内没能枚举到 `USB_ACTIVE`** —— 而我们**已经有实证说明枚举会彻底失败**
+   （2026-08-11 主机侧留下多个 Device Descriptor Request Failed 节点）
+3. 左半区判定自己是**从手 + 右手** → 调 `usb_disconnect()` 主动关掉 USB
+4. 结果：设备从主机上**彻底消失**（比原来的「失声但设备还在」更糟），
+   且两半都在等一个不存在的主手 → **只能拔插 USB**（好在还有 bootmagic，不至于拆机）
+
+可选缓解：
+
+| 方案 | 状态 | 说明 |
+|------|------|------|
+| **Sticky master** | ✅ **已实施**（2026-08-11，见下） | 彻底消除这条路径，且不依赖「枚举要在 2.5s 内成功」 |
+| 调大 `SPLIT_USB_TIMEOUT`（2500 → 5000）| ❌ 否决 | 只降低概率；从手开机要多等 2.5s，用户明确说使用体验差 |
+| 改用 `EE_HANDS` | ❌ 否决 | RP2040 上要先刷两个一次性镜像，且 bootmagic 会擦掉手别（详见「手别模式怎么选」一节）|
+| 降低第 3 级触发频率 | ✅ 已做 | 宽限期修复让第 3 级只在「第 2 级失败」后才触发 |
+
+#### ✅ 已实施：Sticky master（软复位后直接沿用主手身份）
+
+把「复位前我是主手」记在 `watchdog_hw->scratch[1]`（pico-sdk 只用 `[4..7]`，`[0..3]` 空着；
+scratch 跨看门狗复位保留、上电复位才清）。判定软复位用 `watchdog_hw->reason != 0`。
+
+```c
+bool is_keyboard_master_impl(void) {          // 覆盖上游的 weak 实现
+    const bool soft_reset = (watchdog_hw->reason != 0);
+    if (soft_reset && watchdog_hw->scratch[1] == DOLPHIN_MASTER_STICKY_MAGIC) {
+        return true;                          // 沿用主手身份，完全跳过轮询
+    }
+    if (!soft_reset) watchdog_hw->scratch[1] = 0;   // 上电复位：清残留
+    ... 复刻上游 usb_bus_detected() 的轮询 ...
+    if (is_master) watchdog_hw->scratch[1] = DOLPHIN_MASTER_STICKY_MAGIC;
+    else { watchdog_hw->scratch[1] = 0; usb_disconnect(); }
+    return is_master;
+}
+```
+
+语义正好对：
+
+| 场景 | 行为 |
+|------|------|
+| 第 3 级芯片复位 / 4s 硬件看门狗复位（`reason != 0`）| 沿用主手身份，**顺带完全跳过那段最长 2500ms 的轮询** |
+| 真拔插 = 断电 = 上电复位（`reason == 0`）| 清标志、走正常检测，行为与原来完全一致 |
+| 从手 | 永远不写这个标志，判定不受影响 |
+
+**⚠️ 维护负担**：`is_keyboard_master_impl()` 没有公开声明、`SPLIT_USB_TIMEOUT_POLL`（默认 10）
+也只定义在 `split_util.c` 内部，所以 fallback 分支**复刻了上游 `usb_bus_detected()` 的逻辑**。
+这与 2026-08-11 撤掉的 `serial_vendor.c` 属同一类做法（vendored 上游逻辑），
+区别是这段是纯逻辑、不是时序敏感驱动，漂移风险低得多。
+**若上游改了主从判定方式，这里要跟着同步。**
+
+反汇编核对（`LTO_ENABLE=no`）：
+
+```asm
+is_keyboard_master_impl:
+  r5 = 0x40058000        ; WATCHDOG_BASE
+  ldr r3, [r5, #8]       ; REASON      (0x08 ✓)
+  beq → str r3,[r5,#16]  ; reason==0 → scratch[1]=0
+  ldr r2, [r5, #16]      ; scratch[1]  (0x10 ✓)
+  cmp r2, 0x4d53544c     ; 'MSTL' magic ✓
+  → movs r0,#1 ; return  ; sticky 生效
+  movs r6, #250          ; 250 = SPLIT_USB_TIMEOUT(2500)/POLL(10) ✓
+  bl usb_connected_state / chThdSleep(0x2710 = wait_ms(10))
+  非主手 → scratch[1]=0 + bl usb_disconnect   ; 与上游一致 ✓
+  主手   → scratch[1]=magic                   ; ✓
+```
+
+`nm` 里只有**一个** `is_keyboard_master_impl` 符号 → 上游 weak 版确实被替换掉了。
+LTO 构建下 `0x4d53544c` 在两个键盘的二进制里各出现 2 次。
+
+### 参考项目：geulpan42TP（YD-RP2040 + QMK + Split + TrackPoint）
+
+来源：<https://arcreview.net/2024/03/yd-rp2040-with-qmk/>（韩文笔记，**无公开仓库**，只有配置片段）。
+作者用 YD-RP2040 做带 TrackPoint 的分体键盘。原文给出的全部配置：
+
+```make
+# rules.mk
+PS2_ENABLE       = yes      # TrackPoint
+PS2_DRIVER       = vendor
+PS2_MOUSE_ENABLE = yes
+SERIAL_DRIVER    = vendor   # Split
+WS2812_DRIVER    = vendor   # 板载 WS2812
+RGBLIGHT_ENABLE  = yes
+```
+
+```c
+// config.h
+#define RP2040_BOOTLOADER_DOUBLE_TAP_RESET
+#define RP2040_BOOTLOADER_DOUBLE_TAP_RESET_TIMEOUT 1000U
+
+#define PICO_FLASH_SIZE_BYTES (16 * 1024 * 1024)
+#define WEAR_LEVELING_RP2040_FLASH_SIZE (PICO_FLASH_SIZE_BYTES)
+#define WEAR_LEVELING_RP2040_FLASH_BASE ((WEAR_LEVELING_RP2040_FLASH_SIZE) - (WEAR_LEVELING_BACKING_SIZE))
+#define WEAR_LEVELING_BACKING_SIZE 131072      // 4096 × 32，作者实测的上限
+#define WEAR_LEVELING_LOGICAL_SIZE (WEAR_LEVELING_BACKING_SIZE / 2)
+#define BACKING_STORE_WRITE_SIZE 2
+```
+
+对我们有用的四点：
+
+| 要点 | 与我们的关系 |
+|------|-------------|
+| **板载 WS2812 占用 GP23，两者不能同时用**（原文：「내장 WS2812와 GP23을 동시에 사용할 수 없습니다」）| ✅ **独立佐证我们的设计**。Dolphin54 把 GP23 当最外侧拇指键，正因如此显式 `RGBLIGHT_ENABLE = no` + `RGB_MATRIX_ENABLE = no`。作者反过来选了用 RGB，所以他不能把 GP23 当按键 |
+| **开了 `RP2040_BOOTLOADER_DOUBLE_TAP_RESET` 之后，物理「reset + bootsel」组合进不了 UF2 引导**，只能双击 reset | 参考价值有限：我们也开了这个宏（timeout `500U`，作者用 `1000U`），但**本键盘的 reset 按钮在壳里、要拆机才能按**，所以物理按钮那一套本来就用不上。我们进 bootloader 只走「Vial 改键 → 按键」，见「怎么进刷机模式」一节。真到了必须拆机的地步，记住此时 bootsel 组合无效、只能双击 reset |
+| **flash 容量与 wear leveling** | 📌 **可改进项（与失声无关）**。QMK 自己**从不定义** `PICO_FLASH_SIZE_BYTES`（已 grep 全树确认，只有 `lib/pico-sdk` 的 board header 有），走 pico-sdk 默认 **2MB**；QMK 的 `WEAR_LEVELING_BACKING_SIZE` 默认 **8192**、`WEAR_LEVELING_LOGICAL_SIZE` = **4096**（`platforms/chibios/drivers/wear_leveling/wear_leveling_rp2040_flash_config.h:15-31`）。作者把 backing 提到 131072 后，Vial 宏内存从 **2387 → 63827 字节**。我们现在应该也被 4096 卡着 |
+| **同型号不同批次 flash 芯片不同**：实测见过 W25Q128 与 25VQ128（都能刷 QMK，W25Q128 复制 uf2 更慢）| 「YD-RP2040 硬件一致性有批次差异」这条说法有实据 |
+
+> **改 flash / wear leveling 前必须先搞清真实 flash 容量。** 两个风险：
+> 1. `PICO_FLASH_SIZE_BYTES` 若设得**大于**实物容量，写入会落到 flash 之外。
+>    `hardware_flash/flash.c:65` 的 `hard_assert(flash_offs + count <= PICO_FLASH_SIZE_BYTES)`
+>    拦不住这种情况（它只按你声明的值校验），实际后果是数据损坏。
+> 2. 改这些值会**移动 EEPROM 的物理位置** → 现有 Vial 配置（键位、combo）全部失效，
+>    需要重刷 + Reset EEPROM，再靠 `keyboard_post_init_user()` 重新播种 combo。
+>
+> 判定真实容量：看板子上 flash 芯片丝印（W25Q32=4MB / W25Q64=8MB / W25Q128=16MB），
+> 或临时刷一版把 JEDEC ID 打出来的固件。
+
+**这篇对本次「USB 失声」没有直接帮助**：作者只记了配置与刷机踩坑，没有任何长期稳定性/假死记录，
+而且他的 GP23 用途、RGB 开关、PS/2 外设都和我们不同，不构成对照实验。
 
 ### 社区调研：这是已知的上游问题，且没有修复
 
 | 来源 | 内容 | 对我们的意义 |
 |------|------|-------------|
-| [树莓派论坛 t=374030](https://forums.raspberrypi.com/viewtopic.php?t=374030) | **E15 硬件锁死在现场被观察到，且触发条件比勘误记载的更宽**（不限于 VL805 主机）| **根因首选**。硬件锁死 + 只有复位能救 + 随机触发，与本故障吻合 |
+| [树莓派论坛 t=374030](https://forums.raspberrypi.com/viewtopic.php?t=374030) | **E15 硬件锁死在现场被观察到，且触发条件比勘误记载的更宽**（不限于 VL805 主机）| **根因首选**。硬件锁死 + 只有复位能救 + 随机触发，与本故障吻合。2026-08-11 10:18 的实测（第 2 级复位救回）进一步支持 |
+| [TinyUSB `rp2040_usb.h`](https://github.com/hathach/tinyusb/blob/master/src/portable/raspberrypi/rp2040/rp2040_usb.h) | E15 的权威一句话描述：*"USB Device controller will hang if certain bus errors occur during an **IN transfer**"* | **触发因子是总线错误 + IN 传输**，不是纯随机。我们死掉的三条通路全是 IN 端点；且能解释「20 秒内两次」的成簇现象与「静置时从不复发」。降频手段：改善物理层（换口 / 换线 / 避开 hub 与干扰源）|
+| [TinyUSB `dcd_rp2040.c`](https://github.com/hathach/tinyusb/blob/master/src/portable/raspberrypi/rp2040/dcd_rp2040.c) | 官方缓解的实现：只对**双缓冲 Bulk IN** 端点（`e15_bulk_in`）生效，常开 SOF 中断并在 SOF ISR 里按微帧补挂 buffer control | 键盘只有 Interrupt IN 端点，**这套代码无法直接移植到 ChibiOS**。所以反应式恢复（当前方案）是可行度最高的路线，不是偷懒 |
 | [pico-sdk#1260](https://github.com/raspberrypi/pico-sdk/issues/1260) | E15 的官方缓解 `PICO_RP2040_USB_DEVICE_UFRAME_FIX`，「required for correctness」；且该勘误未收录进数据手册 | 缓解只挂在 TinyUSB 构建上；ChibiOS 的 RP2040 USB 驱动**零** errata 处理（已 grep 确认）→ QMK 拿不到 |
 | [qmk#7784](https://github.com/qmk/qmk_firmware/pull/7784) | `usb_endpoint_in_send()` 里 `!= USB_ACTIVE` 就丢弃的来源。原文：*"If the status is not USB_ACTIVE, we don't have any endpoints and attempting to send on them crashes. Discard these sends."* | 静默丢弃是**有意为之**（避免崩溃），不是 bug。所以永远不会有上游补丁让非 ACTIVE 状态下也能发送 —— 唯一出路是回到 ACTIVE |
 | [qmk#14851](https://github.com/qmk/qmk_firmware/issues/14851) | *"This behaviour blocks the keyboard_task() from being invoked, which would then start the matrix_scan()"* | 印证 `NO_USB_STARTUP_CHECK` 的阻塞循环会挡住主循环，即方案 1 的悖论 |
@@ -344,6 +801,194 @@ if (usbGetDriverStateI(endpoint->config.usbp) != USB_ACTIVE) {
 3. 方案 1 只覆盖 `USB_SUSPENDED`；若卡在 `USB_READY`，那个循环压根不会进入。
 4. 方案 1 要改目前**正常工作**的休眠行为，有让当初「唤醒假死」回归的风险。
 
+### 怎么进刷机模式（本键盘有两条路，都不用拆机）
+
+> **本键盘有两条进 bootloader 的路**，都不用拆机：
+>
+> 1. **Vial 改键 → 按键**（日常首选，顺手）
+> 2. **Bootmagic：开机按住最外侧上角键**（兜底，不依赖 Vial，见上一节）
+>
+> 板载 reset / bootsel 按钮在壳里，只有「连矩阵都坏了」才需要拆机。
+
+标准流程：
+
+1. Vial 连上键盘（raw HID）
+2. 把任意一个顺手的键改成 `QK_BOOTLOADER`（或先配好切层键，再走 `_FUN` 层左上/右上那两个）
+3. 按下去 → 主机弹出 `RPI-RP2` 盘
+4. 把 uf2 拖进去；左右手各做一次
+
+**⚠️ 这条路依赖「Vial 能连上」。** 但**不是单点故障** —— 还有 bootmagic 兜底
+（开机按住最外侧上角键，见上方「Bootmagic」一节）。两条路的分工：
+
+| 情形 | 用哪条路 |
+|------|---------|
+| 日常改键位后要刷机 | Vial 改键 → 按 `QK_BOOTLOADER`（顺手） |
+| 刚刷完机，EEPROM 被重置成默认键位，`_FUN` 进不去 | **bootmagic**：按住最外侧上角键插线 |
+| 固件把 raw HID 弄坏了 / Vial 连不上 | **bootmagic**（这就是它存在的意义） |
+| 连矩阵扫描都坏了 | 才需要拆机按 reset |
+
+**因此刷机前后各有一条纪律：**
+
+- **刷之前**：确认当前键位里有一个能按到的 `QK_BOOTLOADER`（走 `_FUN` 层也算）。
+  忘了配也不要紧 —— 用 bootmagic
+- **刷之后**：第一件事就是 Vial 配好切层键，把 `_FUN` 层的 `QK_BOOTLOADER` 重新变得可按
+
+#### RP2040 上 EE_HANDS 到底能不能「统一固件」
+
+**能，但要先用两个一次性镜像写入身份**（这里修正本文档早先「只能永远两个固件」的过度断言）：
+
+1. 一次性：`make dolphin54:vial:uf2-split-left` 刷左手、`:uf2-split-right` 刷右手。
+   这两个目标只是往编译里加 `-DINIT_EE_HANDS_LEFT/RIGHT`（`platforms/chibios/flash.mk:50-56`），
+   开机时把手别写进 EEPROM
+2. 之后：`EE_HANDS` 从 EEPROM 读手别，**左右手刷同一个统一固件**即可
+
+手别能不能活过刷机与 Vial 重置：
+
+| 操作 | `EECONFIG_HANDEDNESS`（eeconfig 偏移 14）会丢吗 |
+|------|------------------------------------------|
+| 刷 uf2 | **不丢**。uf2 只写固件区，模拟 EEPROM 在 flash 尾部（`PICO_FLASH_SIZE_BYTES - WEAR_LEVELING_BACKING_SIZE`）|
+| Vial「Reset EEPROM」 | **不丢**。`id_eeprom_reset` 走 `eeconfig_init_via()`，只重置 dynamic keymap + 宏 + layout options |
+| **Bootmagic（按住上角键开机）** | **会丢！** `bootmagic_reset_eeprom()` → `eeconfig_init_quantum()` → `nvm_eeconfig_erase()` → `eeprom_driver_format()` 整片格式化。之后两半都读到 0 = 「不是左手」→ **两半都以为自己是右手** → 矩阵镜像，得重刷一次 split-left/right 镜像才能救 |
+
+**这一条决定了不要换 EE_HANDS**：bootmagic 是我们唯一不依赖 Vial 的 bootloader 兜底，
+而 EE_HANDS 恰好把「用了 bootmagic 就得重做手别初始化」这个耦合引进来 ——
+等于给唯一的救命通道加了一个副作用。现状 `MASTER_LEFT` 手别由 USB 检测推出、
+**完全不存在 EEPROM 里**，所以 bootmagic 随便按，没有任何东西可丢。
+
+> 备选兜底方案（**未采用，待定**）：给默认键位加一个 4 键 combo → `QK_BOOTLOADER`。
+> 好处是它落在 `keyboard_post_init_user()` 的 combo 播种逻辑里（`entry.output == 0` 时自动补种），
+> **刷完立刻可用、完全不需要 Vial，也不违反「默认不切层」的定案**（combo 不是切层键），
+> 且 4 键同按不可能误触。代价是占一个 Vial combo 槽位。
+
+### ✅ Bootmagic：不依赖 Vial、不用拆机进 bootloader（2026-08-11 查实）
+
+**开机时按住最外侧上角键 → 该半区进 bootloader。** 这条路一直存在，只是之前没意识到。
+
+`BOOTMAGIC_ENABLE` 在我们的构建里是开着的（cflags 里有 `-DBOOTMAGIC_ENABLE`），
+调用链（`quantum/bootmagic/bootmagic.c`）：
+
+```c
+__attribute__((weak)) bool bootmagic_should_reset(void) {
+    uint8_t row = BOOTMAGIC_ROW;      // 默认 0
+    uint8_t col = BOOTMAGIC_COLUMN;   // 默认 0
+    return matrix_get_row(row) & (1 << col);
+}
+__attribute__((weak)) void bootmagic_scan(void) {
+    matrix_scan(); wait_ms(BOOTMAGIC_DEBOUNCE); matrix_scan();
+    if (bootmagic_should_reset()) {
+        bootmagic_reset_eeprom();
+        bootloader_jump();            // ← RP2040 上是 reset_usb_boot()
+    }
+}
+```
+
+我们没有自定义 `BOOTMAGIC_ROW/COLUMN`，所以就是矩阵 `[0,0]`，
+即 `_BASE` 层的 `KC_ESC` —— **最外侧上角那颗键**。
+
+**为什么插哪半都好用**（关键在初始化顺序，`quantum/keyboard.c:469`）：
+
+```
+keyboard_init():
+  via_init()
+  split_pre_init()    ← 先定主从与手别（含最多 SPLIT_USB_TIMEOUT 的轮询）
+  matrix_init()       ← 按 isLeftHand 选引脚映射，设 thisHand
+  quantum_init()      ← bootmagic() 在这里
+```
+
+bootmagic 在主从/手别判定**之后**才跑，所以那时 `thisHand` 已经正确。
+而 `MASTER_LEFT` 下手别 = 主从，**插 USB 的那半必然 `thisHand = 0`**，
+自己的键就落在矩阵第 0~4 行 → `matrix_get_row(0)` 读到的正是它自己的上排 →
+按住它的最外侧上角键就能命中 `[0,0]`。因为左右走线严格镜像，GP3 在两半都是最外侧上角键。
+
+> **操作**：插 USB 的同时按住那半区的**最外侧上角键**，按住约 3 秒不放
+> （要等过 `split_pre_init()` 里最多 2.5 秒的主从检测），`RPI-RP2` 就会弹出。
+>
+> 顺带会执行 `bootmagic_reset_eeprom()` 清空 EEPROM —— 对我们**无副作用**：
+> Vial 配置反正每次刷机都会被清（`BUILD_ID` 随机），而我们没用 `EE_HANDS`，
+> 手别不存在 EEPROM 里，所以没东西可丢。
+
+**这条路把之前记的「单点故障」解掉了**：不再需要「Vial 能连上」才能进 bootloader。
+即使刷进去的固件把 raw HID 弄坏了，只要矩阵还能扫，按住上角键重新插线就能救回来。
+**从手（没插 USB 那半）按 bootmagic 是无效的**：一是它的键在矩阵 5~9 行而 bootmagic 查第 0 行
+（除非定义 `BOOTMAGIC_ROW_RIGHT/COLUMN_RIGHT`），二是更根本的——它身上没有 USB 线，
+就算进了 bootrom 也不会有 `RPI-RP2` 出现。**刷哪半，线就得插哪半。**
+
+### 从手（右手）为什么按不出 bootloader，以及手别模式怎么选
+
+**从手压根不处理键码。** `quantum/keyboard.c` 里：
+
+```c
+__attribute__((weak)) bool should_process_keypress(void) {
+    return is_keyboard_master();     // 从手返回 false
+}
+...
+if (process_keypress) { action_exec(MAKE_KEYEVENT(row, col, key_pressed)); }
+```
+
+从手只扫描矩阵、把原始状态经串口发给主手，`action_exec()` 在从手上**永不执行**。
+所以在右手按 `QK_BOOTLOADER`，进 bootloader 的是**左手（主手）**。
+**这与固件是否分左右无关**，是分体架构的固有行为。
+
+要刷右手，只能把 USB 插到右手让它变成主手。
+
+**好消息：现状下这样做键位是可用的。** 左右引脚映射严格镜像，GP → 物理角色在两半一致：
+
+| 引脚 | 左手 | 右手 |
+|------|------|------|
+| GP3 | `[0,0]` 最外侧上排 | `[5,5]` 最外侧上排 |
+| GP23 | `[4,2]` 外侧拇指 | `[9,2]` 外侧拇指 |
+| GP17 | `[4,0]` 中拇指 | `[9,1]` 中拇指 |
+| GP18 | `[4,1]` 内拇指 | `[9,0]` 内拇指 |
+
+而 `quantum/matrix.c:276` 是 `if (!isLeftHand) { 用 direct_pins_right }`、`:299` 是
+`thisHand = isLeftHand ? 0 : ROWS_PER_HAND`。右手插上 USB 后判定自己是主手，
+`MASTER_LEFT` 下 handedness = master 所以它认为自己是左手 → 用左手引脚映射、键落在矩阵 0~4 行
+→ **它就变成一块左手键盘**。因为镜像对称，每个物理键落到「左手的镜像同位」，
+所以按右手的最外侧上排键正好是 `[0,0]` = `_FUN` 层的 `QK_BOOTLOADER`，切层拇指也在对应物理拇指上。
+
+#### ⚠️ 网上那份「EE_HANDS 刷机指南」对 RP2040 不成立
+
+常见说法是「EE_HANDS = 同一个固件，首次刷一次 `eeprom-lefthand.hex` 写入身份」。
+**这是 AVR 专属流程**：`quantum/split_common/eeprom-lefthand.eep` 是 Intel HEX 格式的
+AVR EEPROM 镜像（内容 `:0F000000...`），用 avrdude 写进 AVR **独立的** EEPROM 芯片区。
+RP2040 没有独立 EEPROM（是 flash 里的 wear-leveling 模拟），这条路**不存在**。
+QMK 源码里明写着：
+
+```make
+# platforms/chibios/flash.mk:48
+# TODO: Remove once ARM has a way to configure EECONFIG_HANDEDNESS
+#       within the emulated eeprom via dfu-util or another tool
+ifneq (,$(filter $(MAKECMDGOALS), dfu-util-split-left uf2-split-left))
+    OPT_DEFS += -DINIT_EE_HANDS_LEFT
+endif
+```
+
+**所以 RP2040 上 EE_HANDS 的唯一做法就是编两个固件**
+（`make xxx:uf2-split-left` / `:uf2-split-right`，本质是加 `-DINIT_EE_HANDS_LEFT/RIGHT`；
+`EE_HANDS` 本身仍需写在 config.h 里）。
+
+于是那张对比表的优缺点对我们是**反的**：
+
+| 模式 | 网上说法 | 我们（RP2040）的实际情况 |
+|------|---------|----------------------|
+| `MASTER_LEFT`（**现状**）| 「分左右各一个固件」| ❌ 错。**一个固件**，两半刷同一个文件。手别由 USB 检测推出（`is_keyboard_left_impl()` 默认分支 = `return is_keyboard_master()`），**不落 EEPROM** |
+| `EE_HANDS` | 「同一个固件，首次写一次 EEPROM」| 方向对，但实现不同：RP2040 没有 `.eep` 这条路，首次要刷 `uf2-split-left/right` 两个一次性镜像；之后才能统一固件。**代价是 bootmagic 会擦掉手别** |
+| `SPLIT_HAND_PIN` | 「需要 PCB 支持」| ✅ 对。而且我们引脚基本用完（GP0-15 矩阵、GP16 串口、GP17-23 与 GP26-29 也都占了，只剩 GP24/GP25，而它们在 YD-RP2040 上是 USRkey 与 LED），还要两半接不同电平 |
+
+**结论：现状（`MASTER_LEFT` + 单固件）已经是最省事也最稳的方案，不要换。** 三条诉求逐一对照：
+
+| 诉求 | EE_HANDS 能解决吗 |
+|------|-----------------|
+| 「统一固件、升级只刷一个文件」| **现状本来就是这样**，没有提升 |
+| 「免掉 2.5 秒等待」| ❌ **无效**。那 2.5s 是 `is_keyboard_master_impl()` 里的主从检测轮询，EE_HANDS 只改 `is_keyboard_left_impl()`。唯一能免掉的是 `USB_VBUS_PIN`（一次 GPIO 读），但 YD-RP2040 的 VBUS「有二极管挡着」拿不到，要飞线 |
+| 「USB 插哪边都行」| ✅ **这是唯一的真实提升**：现状插右边也能用，但右半区会以左手身份工作（键位镜像）。不过 bootloader 键恰好在两半同一物理角色上，所以实操没差别 |
+| 「减少出问题的情况」| 只减轻一半：消掉「误判 → 矩阵镜像」，但消不掉更严重的「误判 → `usb_disconnect()` → 设备从主机消失」。**同时新增**「用过 bootmagic 就得重做手别初始化」这个耦合 |
+
+**真正对症的解法**（未做，待定）：用 QMK 的自定义分体 RPC
+（`quantum/split_common/transactions.h` 的 `transaction_register_rpc` /
+`transaction_rpc_send`）做一个键码：主手按下 → RPC 通知从手 → **从手自己调 `bootloader_jump()`**。
+这样右手不用插拔线就能进 bootloader，线一直留在左手。约 30~40 行。
+
 ### 下次失声时怎么做（操作手册）
 
 #### 情况 0：被动监测 —— 防止「悄悄恢复了但我们不知道」
@@ -352,18 +997,50 @@ if (usbGetDriverStateI(endpoint->config.usbp) != USB_ACTIVE) {
 那这次数据就丢了。所以加一条零成本的被动检查：**跑诊断脚本**。
 
 ```bash
-scripts/kb-diag.sh              # 查看当前状态并与基线对比
+scripts/kb-diag.sh              # 查看当前状态、与基线对比，并自动记录新事件
 scripts/kb-diag.sh --baseline   # 记录新基线（刷机后 / 重启电脑后必做）
 scripts/kb-diag.sh --log        # 额外输出 USB/HID 错误与休眠唤醒事件
+scripts/kb-diag.sh --history    # 打印事件历史（默认最近 20 条）
+scripts/kb-diag.sh --watch 60   # 常驻盯着，每 60 秒采样，只在有新事件时输出
+scripts/kb-diag.sh --quiet      # 只在有新事件时输出（给 cron / --watch 用）
 ```
 
-脚本一次抓齐：当前枚举时刻与已运行时长、电源状态（D0/D2/D3）、全部 USB 接口的
-status/problemCode、是否有卡住的修饰键、以及与基线的差异判读。
+**强烈建议观察期挂上 `--watch`**：
+
+```bash
+nohup scripts/kb-diag.sh --watch 60 >> scripts/.kb-watch.out 2>&1 &
+```
+
+理由：`LastArrivalDate` 只保留**最后一次**枚举，而 `Kernel-PnP/Configuration` 与
+`Device Management` 两个日志对「已安装设备的重新枚举」**一条都不记**（实测近 12 小时零记录），
+`USB-USBHUB3/Analytic` 默认关闭。所以不主动定时采样就只能靠人的体感 ——
+2026-08-11 上午就因此漏掉了两次事件。
+
+脚本一次抓齐：当前枚举时刻与已运行时长、电源状态（D0/D2/D3）、物理端口、
+全部 USB 接口的 status/problemCode、**同一端口上的「枚举失败」残留节点**、
+是否有卡住的修饰键、以及与基线的差异判读。
+
+三个本地状态文件（都已 gitignore）：
+
+| 文件 | 作用 |
+|------|------|
+| `scripts/.kb-baseline` | **给人看的**对比基准，刷机/重启后手动 `--baseline` 重置 |
+| `scripts/.kb-state` | **自动记录用的游标**（上次看到的枚举时刻与失败枚举时刻），脚本自己维护 |
+| `scripts/.kb-events.log` | append-only 事件历史，`RE-ENUM` 与 `FAILED-ENUM` 两类记录 |
+
 第 2、3 级恢复都会导致重新枚举，枚举时刻必然变化 —— 所以只要时刻变了而你没拔过线、
-也没重启电脑，就说明期间发生过一次失声并被自动救回。
+也没重启电脑，就说明期间发生过一次失声并被自动救回。配合 Vial 里的 `USB_DIAG` 键
+还能把固件侧的计数打出来（字段含义见「已采用的修复」一节）。
 
 > **注意**：刷机和重启电脑都会改变枚举时刻，所以这两件事之后都要重新 `--baseline`，
 > 否则下次对比会误报。基线存在 `scripts/.kb-baseline`（已 gitignore）。
+
+> **`LastArrivalDate` 只保留最后一次枚举，数不出次数。** 2026-08-11 实测：
+> `Microsoft-Windows-Kernel-PnP/Configuration` 与 `.../Device Management` 两个日志
+> 对「已安装设备的重新枚举」**一条都不记**（近 12 小时零记录），
+> `Microsoft-Windows-USB-USBHUB3/Analytic` 默认关闭。所以多次事件的次数与间隔
+> **只能靠用户体感**，务必一并记下「卡了几次、间隔多久、最后一次距你来报隔了多久」。
+> 最后这一项能用来判断脚本读到的枚举时刻属于第几次事件。
 
 脚本实现要点（踩过的坑）：WSL2 无 USB 子系统，必须绕道 `powershell.exe`；
 PowerShell 输出是 CRLF，**必须 `tr -d '\r'`**，否则每个字段尾部带回车会让算术运算报错、
@@ -409,45 +1086,69 @@ PowerShell 输出是 CRLF，**必须 `tr -d '\r'`**，否则每个字段尾部�
 
 | 症状 | 含义 | 应对 |
 |------|------|------|
-| 枚举时刻频繁变化、时不时断一下 | 复位兜底误触发 | `DOLPHIN_USB_STUCK_RESET_MS` 从 5000 调大 |
+| **Windows 弹「无法识别的 USB 设备」** | **恢复逻辑打断了自己的枚举**（第 2 级反复重试）| 已于 2026-08-11 修复（5s 宽限期）。若刷入新固件后仍出现，说明 5s 不够，调大 `DOLPHIN_USB_RECOVERY_GRACE_MS`。核实方法见「自伤」一节的 PnP 查询 |
+| 枚举时刻频繁变化、时不时断一下 | 复位兜底误触发 | `DOLPHIN_USB_STUCK_RESET_MS` 从 10000 调大 |
 | 主机休眠唤醒后异常 | 意外——本方案未改动任何 suspend 配置 | 立刻报 |
 | 打字莫名丢字 | 不该发生，恢复逻辑不碰正常路径 | 报 |
 
 #### 顺带：keymap 新版刷完要验证
 
-- 内侧四个拇指长按能否进 _NAV / _NUM / _SYM / _MOUSE
-- 外侧两个拇指配好后能否进 _FUN / _MEDIA（**刷前先在 Vial 里配好**，否则这两层暂时进不去）
-- Caps Word 下按 `-` 出 `_`、按数字出数字
-- J+K 仍能出 Shift（确认 EEPROM 里的 combo 没丢）
+> **⚠️ 先搞清楚一件事：每次刷机都会把 Vial 配置清回默认键位。**
+>
+> `via_eeprom_is_valid()`（`quantum/via.c:86`）在 `VIAL_ENABLE` 下拿 EEPROM 里的
+> magic 与 **`BUILD_ID`** 比对，而 `BUILD_ID` 是 `util/build_id.py` 里
+> `random.randrange(0, 2**24 - 1)` **每次构建随机生成**的
+> （实测连续三次增量构建得到 `0x00C49231` / `0x0088E25D` / `0x009457F3`，全不一样）。
+> 校验失败 → `via_init()` 调 `eeconfig_init_via()` → `dynamic_keymap_reset()`
+> 把 EEPROM 键位重置成编译进去的默认键位，并 `dynamic_keymap_macro_reset()` 清空宏。
+>
+> 推论（**修正了本文档以前的错误说法**）：
+> - 「刷前先在 Vial 里配好」是**没用的** —— 配置会被刷机清掉，必须**刷完再配**
+> - 好处是：改默认键位（比如新加的 `USB_DIAG`）**不需要手动 Reset EEPROM**，刷完自动生效
+> - combo **不受影响**：`keyboard_post_init_user()` 里 `if (entry.output == 0)` 会自动补种
+>
+> **而默认键位里一个切层键都没有 —— 这是既定设计，不是缺陷**（见「状态」一节里
+> 「拇指切层」条目下的定案说明）。切层属于进阶用法，所以刷完的第一步就是
+> **在 Vial 里配切层键**，这是正常流程。配好之前 `_FUN` / `_MEDIA` 进不去，
+> `QK_BOOTLOADER` 与 `USB_DIAG` 也按不出来，直到配好切层键。
+> **本键盘不能靠双击物理 reset 兜底**（reset 按钮在壳里，要拆机），见「怎么进刷机模式」一节。
+
+刷完按这个顺序做（**第 1 步是正常流程，不是在补救什么**）：
+
+1. **先在 Vial 里配切层键**：内侧四拇指 `LT(1,SPC)` / `LT(2,TAB)` / `LT(3,ENT)` / `LT(4,BSPC)`，
+   外侧两拇指配成进 `_FUN`(5) / `_MEDIA`(6)
+2. 验证内侧四拇指长按能进 _NAV / _NUM / _SYM / _MOUSE
+3. 验证外侧两拇指能进 _FUN / _MEDIA
+4. **验证 `USB_DIAG`**：进 `_FUN` 后按**左上角 `QK_BOOTLOADER` 正下方那颗键**
+   （即 `_FUN` 层矩阵 `[1,0]`），光标处应敲出
+   `USBDIAG a=0 b=0 heal=0 rst=0 mcu=0 st=255 up=NNNs`
+5. Caps Word 下按 `-` 出 `_`、按数字出数字
+6. J+K 仍能出 Shift（确认 combo 补种生效）
 
 **结案标准**：连续正常使用 2~3 周无失声 → 勾掉状态项，把本节压缩成「已知坑」表里一行。
 
 
 **分支 D — 出现新问题：右半区失灵 / 按键丢失 / 分体不同步**
 
-优先怀疑是串口上界改动的副作用（3819µs 超时在正常情况下被误触发，导致事务被丢弃）。
-
-- 快速验证方式是**把上界调大**，而不是删文件：把 `SERIAL_PIO_DRAIN_TIMEOUT_US` 的倍数
-  从 10 改成 1000（≈382ms），等效于关掉上界但保留文件结构，两道守卫都不受影响。
-  若问题消失即证实是误触发。
-- 注意：**不要用「删掉 `keyboards/dolphin5x/serial_vendor.c`」来做对比测试**。
-  删了之后守卫 2 会失败，而它在构建步骤之后、artifact 上传之前 —— job 会中断，
-  **拿不到任何固件产物**。真要回落到上游版本，必须同时把工作流里
-  `Verify keyboard-level serial_vendor.c override took effect` 这一步一起去掉。
-- 若确认是误触发：当前上界只需大于「8 字节 × 11bit / 波特率」，230400bps 下理论最坏 382µs，
-  10 倍已很宽松。真误触发说明有别的因素在拖慢 FIFO 排空，值得先查清原因再调参。
+**2026-08-11 起这条基本可以排除自家改动**：`serial_vendor.c` 的本地覆盖已撤销，
+分体串口跑的就是上游原版，没有我们加的 3819µs 上界了。
+所以真出现这类症状，先按普通分体问题查：TRRS 线接触/屏蔽、GP16 焊点、
+以及 `SELECT_SOFT_SERIAL_SPEED`（默认 1 = 230400bps，可降到 2 = 115200 试试）。
 
 **分支 E — CI 构建失败**
 
-看是哪道守卫失败：
+现在只有一道守卫：
 
-- `Guard vendored upstream files against drift` → 上游改动了 `serial_vendor.c`。
-  按 `.github/vendored-upstream.sha256` 注释里的 4 步同步：拿上游新版覆盖 → 重新施加两处上界
-  → cp 到另一个键盘目录 → 更新基线哈希。日志里会打印新旧 diff，直接照着改。
-- `Verify keyboard-level serial_vendor.c override took effect` → VPATH 覆盖机制变了。
-  重新确认 `builddefs/common_features.mk` 里 `QUANTUM_LIB_SRC += serial_$(SERIAL_DRIVER).c`
-  是否仍按裸文件名加入，以及 `build_keyboard.mk` 的 VPATH 顺序是否仍是
-  `KEYMAP_PATH` → `USER_PATH` → `KEYBOARD_PATHS` → `COMMON_VPATH`。
+- `Verify shared users/vial/dolphin5x.c was compiled` → 共享文件没被编进去。
+  这个守卫存在的理由是**失效是静默的**：编译照样成功，只是硬件看门狗、
+  USB 失声三级自恢复、诊断计数器全部悄悄消失。检查顺序：
+  1. 工作流的 `Copy keyboard definitions and userspace into vial-qmk` 步是否真的
+     把 `users/vial` 拷进了 `vial-qmk/users/vial`
+  2. keymap 名是否仍是 `vial`（QMK 的 userspace 机制靠「keymap 名 == `users/` 下的目录名」
+     来决定是否把该目录加入 VPATH 并 include 它的 `rules.mk`）
+  3. `users/vial/rules.mk` 里的 `SRC += dolphin5x.c` 是否还在
+
+  本地复现构建环境的办法见下方「本地编译验证」。
 
 ### 诊断工具箱（本次排查中验证有效的手段，复用备查）
 
@@ -495,12 +1196,25 @@ $p = (Get-PnpDeviceProperty -InstanceId '<id>' -KeyName 'DEVPKEY_Device_PowerDat
 git clone --depth 1 -b vial https://github.com/vial-kb/vial-qmk.git /tmp/vial-qmk
 cd /tmp/vial-qmk && git submodule update --init --depth 1 \
     lib/chibios lib/chibios-contrib lib/pico-sdk lib/printf
-cp -r ~/projects/qmk-config/keyboards/dolphin54 keyboards/ && make dolphin54:vial
+# 键盘定义 + 共享的 users/vial（漏了后者会「编译成功但功能全丢」）
+cp -r ~/projects/qmk-config/keyboards/dolphin5{2,4} keyboards/
+mkdir -p users && cp -r ~/projects/qmk-config/users/vial users/
+make dolphin54:vial && make dolphin52:vial
+# 确认共享文件真被编进去了（CI 里的守卫查的就是这一行）
+make dolphin54:vial 2>&1 | grep 'users/vial/dolphin5x.c'
 ```
 
-**LTO 会吃掉符号，验证代码是否真的生成要看反汇编**：本次 `watchdog_enable`/`watchdog_update`
-在 `nm` 里完全查不到（被内联），只能靠 `objdump -d` 找字面量池核对，例如
-`0x6ab73121`(watchdog magic)、`0x007a1200`(4000ms 的 load 值)、`0x00000eeb`(3819µs 上界)。
+**LTO 会吃掉符号，验证代码是否真的生成要看反汇编。** 三条踩过的坑：
+
+1. `watchdog_enable`/`watchdog_update` 在 `nm` 里完全查不到（被内联），只能靠
+   `objdump -d` 找字面量池核对，例如 `0x6ab73121`(watchdog magic)、
+   `0x007a1200`(4000ms 的 load 值)。
+2. **GCC 会把 `x < N` 编成 `x <= N-1`**，所以 grep 字面量要连 `N-1` 一起找。
+   例：5000ms 的宽限期在二进制里是 `.word 0x00001387`(4999)，grep `0x1388` 一无所获。
+3. 想看真符号就**关掉 LTO**：`make dolphin54:vial LTO_ENABLE=no`，
+   然后 `objdump -d | awk '/<housekeeping_task_kb>:/,/^$/'` 能完整读出恢复逻辑，
+   逐个核对门限常量。这是核对生成代码最可靠的办法。
+
 写完固件改动后如果只看「编译通过」，可能什么都没生效。
 
 ---
@@ -520,8 +1234,12 @@ cp -r ~/projects/qmk-config/keyboards/dolphin54 keyboards/ && make dolphin54:via
 
 ### 刷机须知
 
+- **进 bootloader 只有一条路：Vial 改键 → 按键。** reset / bootsel 按钮都在壳里，
+  要拆机才能按 —— 详见上方「怎么进刷机模式」一节（含刷机前后各一条纪律）
 - **只改键位**：只刷主手（插 USB 那半），从手无需重刷
 - **改通信协议 / QMK 大版本升级**：两边都刷
+- **每次刷机都会把 Vial 配置清回默认键位**（`BUILD_ID` 每次构建随机 → VIA magic 必然失配），
+  所以刷完要重新在 Vial 里配切层键；combo 会自动补种，不用管
 
 ### 键位需求（对齐 zmk-config 设计）
 
@@ -557,12 +1275,12 @@ cp -r ~/projects/qmk-config/keyboards/dolphin54 keyboards/ && make dolphin54:via
 |------|------|------|
 | USB 唤醒假死（Wake-up Zombie State） | 笔记本 5V 持续供电 + RP2040 深度休眠/握手时序问题 | `config.h` 中定义 `#define NO_SUSPEND_POWER_DOWN` 和 `#define NO_USB_STARTUP_CHECK` |
 | OSM 被 LT 松手吞掉 | QMK#20269，tap/hold 共用代码 | 自定义 SK_* 替代 |
-
-| 使用中偶发整机假死（键盘 HID + raw HID + console 三条 IN 端点同时死，只有拔插能恢复） | 设备级 `USB_DRIVER.state` 卡在非 `USB_ACTIVE`，`usb_endpoint_in_send()` 入口静默丢弃全部报文；唯一的挂起检测与 `usbWakeupHost()` 都在 `#if !defined(NO_USB_STARTUP_CHECK)` 块内被编译掉 | 待定：方案 1（删该宏 + `suspend_power_down_kb()` 喂狗）或方案 2（非 ACTIVE 且有按键活动超时 → `mcu_reset()`）。硬件看门狗对此**无效**（主循环活着，狗照喂）|
+| 使用中偶发整机假死（键盘 HID + raw HID + console 三条 IN 端点同时死，只有拔插能恢复） | 首选 **RP2040 勘误 E15**：*"USB Device controller will hang if certain bus errors occur during an IN transfer"*，ChibiOS 驱动零 errata 处理；次要候选是设备级 `USB_DRIVER.state` 卡在非 `USB_ACTIVE`，`usb_endpoint_in_send()` 入口静默丢弃全部报文 | 已采用方案 2：`dolphin5x.c` 中「状态非 ACTIVE 或帧号停滞 >100ms」+ 按键活动门控 → `usbWakeupHost()` → `restart_usb_driver()`(2s，只做一次) → 5s 宽限 → `mcu_reset()`(累计 10s)。硬件看门狗对此**无效**（主循环活着，狗照喂）|
+| 自动恢复反而让主机弹「无法识别的 USB 设备」 | 第 2 级 `restart_usb_driver()` 之后主机要重新枚举，而 `USB_DRIVER.state` 要到 SET_CONFIGURATION 才回 `USB_ACTIVE` → 枚举全程被检测器判为「还是死的」→ 每 3s 再 `usbDisconnectBus()` 一次，把枚举掐断；`stuck_since` 又从不重置，10s 到了还叠一次 `mcu_reset()` | 恢复动作后设 5s 宽限期（`DOLPHIN_USB_RECOVERY_GRACE_MS`）整段静默，且第 2 级每个失声周期只做一次（`restart_tried`），宽限期过完仍死才升级到第 3 级。**通用教训：自动恢复必须豁免「恢复动作本身造成的不健康」** |
 | 排查时误用「bootloader 能进」排除 keymap 层卡住 | 该论证只能排除比 _FUN 更高的层；_FUN 自身卡住时左手拇指透传成 Space/Tab、左上角正是 `QK_BOOTLOADER`，观察完全吻合 | 用不经过 keymap 的通路判别：Vial(raw HID) 与 console 是否也死 |
-| `serial_vendor.c` 忙等上界（保留但属过度设计） | 修的是真实上游隐患，但已证明不是本故障原因 | 代价是 vendored 上游驱动 + 两道 CI 守卫 + 同步负担，而该隐患恰好能被硬件看门狗兜住；是否撤掉待定 |
-| vendored 上游文件停留在旧版本、拿不到上游修复 | 复制上游文件到键盘目录会冻结版本，上游更新不会自动跟进 | CI 用 `.github/vendored-upstream.sha256` + `sha256sum -c` 校验上游原文；一变更就构建失败并打印 diff，强制同步 |
-| VPATH 覆盖可能静默失效 | 若上游改变 `serial_vendor.c` 加入 SRC 的方式，覆盖失效但编译照样成功，忙等上界悄悄丢失 | CI 构建后 grep 编译日志，确认编译的是 `keyboards/<kb>/serial_vendor.c` |
+| `serial_vendor.c` 忙等上界（**2026-08-11 已撤销**） | 修的是真实上游隐患，但已证明不是本故障原因 | 撤销理由：代价是 vendored 一个上游时序敏感驱动 + 两道 CI 守卫 + 版本同步负担，而该隐患恰好能被硬件看门狗兜住（串口死锁 → 主循环停摆 → 4s 后狗复位）。反汇编确认 `0x0eeb`(3819) 已从二进制消失 |
+| 共享代码放 `users/vial/` 后，失效方式是**静默的** | QMK 的 userspace 机制只在「keymap 名 == `users/` 下目录名」时才把该目录加入 VPATH 并 include 其 `rules.mk`；一旦机制变了或 CI 忘拷 `users/`，构建照样成功，只是看门狗与 USB 自恢复全丢 | CI 守卫 `Verify shared users/vial/dolphin5x.c was compiled`：构建后 grep 日志确认它被编译 |
+| CI 只拷 `keyboards/`，不拷 `users/` | 早期工作流只 `cp -r keyboards/dolphinXX`，把共享代码搬到 `users/vial/` 后会漏 | 工作流的 `Copy keyboard definitions and userspace into vial-qmk` 步显式 `cp -r users/vial vial-qmk/users/vial` |
 | 主手卡死后只能手动拔插 USB 才能恢复 | `SPLIT_WATCHDOG_ENABLE` 仅对从手生效（`split_watchdog_task()` 里 `!is_keyboard_master()`），主手无任何看门狗 | `dolphin5x.c` 中启用 RP2040 硬件看门狗：`watchdog_enable(4000, false)` + 在 `housekeeping_task_kb` 里 `watchdog_update()` 喂狗 |
 | 启用硬件看门狗后不能去掉 `NO_USB_STARTUP_CHECK` | `protocol_pre_task()` 的 USB 挂起阻塞循环内不调用 `housekeeping_task()`，去掉该宏后休眠期间无法喂狗 | 两者互斥，保留 `NO_USB_STARTUP_CHECK` |
 | 覆写 `housekeeping_task_kb` 后 `housekeeping_task_user` 被执行两次 | 该版本 `housekeeping_task()` 分别调用 `_modules`/`_kb`/`_user`，weak 的 `_kb` 是空实现（不像 `keyboard_post_init_kb` 会转调 user） | `housekeeping_task_kb` 里**不要**调用 `housekeeping_task_user()`；`keyboard_post_init_kb` 里**必须**调用 `keyboard_post_init_user()` |
@@ -573,22 +1291,42 @@ cp -r ~/projects/qmk-config/keyboards/dolphin54 keyboards/ && make dolphin54:via
 | `QK_BOOT` 别名不存在 | vial-qmk 版本较老 | 用 `QK_BOOTLOADER` |
 | Vial GUI 自定义键码显示乱码 | `SAFE_RANGE`=`QK_USER`(0x7E40)，Vial 只识别 `QK_KB`(0x7E00) | enum 用 `QK_KB_0` 起始 + vial.json `customKeycodes` |
 | 改 enum 后 Vial 仍显示旧名 | EEPROM 缓存旧键码值 | 刷固件后 File → Reset EEPROM |
-| Vial UI 设置单键 LT 长按切层失效 | `update_tri_layer_state` 强制检查底层冲突 | 在 `layer_state_set_user` 中弃用原生 tri_layer 宏，完全由 `process_record_user` 内的自定义 `space_pressed` 兼容处理 || Vial 界面按键渲染错乱/拇指键不对齐 | vial.json 间距(x偏移)设置有误，或 keyboard.json 的 layout 数组未严格按物理坐标(从左到右)排序 | 检查并调整 vial.json 的偏移坐标 (如 `{"x":1}`)；keyboard.json 布局宏必须按实际界面展现的物理顺序书写 |
+| **每次刷机都会把 Vial 键位配置清回默认** | `VIAL_ENABLE` 下 `via_eeprom_is_valid()`（`quantum/via.c:86`）拿 EEPROM magic 与 `BUILD_ID` 比对，而 `BUILD_ID` 由 `util/build_id.py` 的 `random.randrange(0, 2**24-1)` **每次构建随机生成**（实测连续三次增量构建全不一样）→ 必然失配 → `eeconfig_init_via()` → `dynamic_keymap_reset()` + `dynamic_keymap_macro_reset()` | 接受它并调整流程：切层键等自定义**刷完再配**（刷前配是白费）。好处是改默认键位不需要手动 Reset EEPROM。combo 不受影响，`keyboard_post_init_user()` 里 `entry.output == 0` 会自动补种 |
+| 刷完发现 `_FUN` / `_MEDIA` 进不去，连 bootloader 键都按不出来 | **这是预期行为，不是 bug**：默认键位刻意一个切层键都没有（切层是进阶用法，见「状态」里的定案说明），而刷机又把 EEPROM 重置成默认键位 | 刷完在 Vial 里配切层键即可，这是正常流程。**不要建议「双击物理 reset」—— 本键盘的 reset 按钮在壳里，要拆机**，见「怎么进刷机模式」一节 |
+| Vial UI 设置单键 LT 长按切层失效 | `update_tri_layer_state` 强制检查底层冲突 | 在 `layer_state_set_user` 中弃用原生 tri_layer 宏，完全由 `process_record_user` 内的自定义 `space_pressed` 兼容处理 |
+| Vial 界面按键渲染错乱/拇指键不对齐 | vial.json 间距(x偏移)设置有误，或 keyboard.json 的 layout 数组未严格按物理坐标(从左到右)排序 | 检查并调整 vial.json 的偏移坐标 (如 `{"x":1}`)；keyboard.json 布局宏必须按实际界面展现的物理顺序书写 |
+| `MASTER_LEFT` 下「左右手身份」等于「主从身份」，第 3 级芯片复位后若 2500ms 内枚举不成功，左半区会判自己是从手+右手并主动 `usb_disconnect()`，设备从主机上彻底消失 | `is_keyboard_left_impl()` 的默认分支就是 `return is_keyboard_master()`；而 `is_keyboard_master_impl()` 靠 `usb_bus_detected()` 最多等 `SPLIT_USB_TIMEOUT`(2500ms) 的 `USB_ACTIVE` | **已修**：Sticky master —— 覆盖 `is_keyboard_master_impl()`，软复位（`watchdog_hw->reason != 0`）时用 `scratch[1]` 里的 magic 沿用主手身份并跳过轮询；上电复位走原逻辑。详见「新发现的风险」一节 |
+| 第 3 级用 `mcu_reset()` 复位得不够彻底 | RP2040 上 `mcu_reset()` 就是 `NVIC_SystemReset()`，只复位处理器子系统、**不复位外设**，而首选根因恰是 USB 控制器硬件锁死 | 改用 `watchdog_reboot(0,0,0)`：`_watchdog_enable()` 会设 `psm_hw->wdsel = PSM_WDSEL_BITS & ~(ROSC|XOSC)`，原注释「Reset everything apart from ROSC and XOSC」，**USB 块在内** |
+| 想判断「这次是上电复位还是软复位」时用错了寄存器 | `vreg_and_chip_reset->chip_reset` 的 `HAD_POR` 在软复位后读什么，取决于该块是否也被 `wdsel` 复位带走，源码里读不出确定答案 | 用 `watchdog_hw->reason`：复位值为 0，上电必读 0；pico-sdk 自己的 `watchdog_caused_reboot()` 就依赖它跨复位保留 |
+| `SELECT_SOFT_SERIAL_SPEED` 以为只对 bitbang 生效 | 实际上 `serial_vendor.c` 包含 `serial_usart.h`，后者把它映射成 `SERIAL_USART_SPEED`（默认 1 = 230400bps），所以对 vendor/PIO 驱动**同样生效** | 记住这一点，别再误判「这个宏对我们没用」 |
+
 ### 文件结构
 
 ```
+users/vial/                    # 两个键盘共享（QMK userspace：keymap 名 == 目录名时自动生效）
+├── dolphin5x.c                # 硬件看门狗 + USB 失声三级自恢复 + 诊断计数器
+├── dolphin5x.h                # dolphin_usb_diag_report() 声明与输出字段说明
+└── rules.mk                   # SRC += dolphin5x.c
+
 keyboards/dolphin52/
 ├── keyboard.json          # 键盘元信息 + 52键布局定义
 ├── config.h               # RP2040 双击复位 + 串口 + Direct Pin 矩阵
-├── dolphin52.c            # RP2040 硬件看门狗（主手卡死自恢复）
-├── serial_vendor.c        # 覆盖上游 PIO 串口驱动，给无超时忙等加上界（CI 有漂移守卫）
 ├── rules.mk               # GENERIC_RP_RP2040 board + PIO serial driver
 └── keymaps/vial/
-    ├── keymap.c           # 7层键位 (核心Sweep + 外围传统)
+    ├── keymap.c           # 7层键位 (核心Sweep + 外围传统) + USB_DIAG 键码
     ├── config.h           # Vial + Tap-Hold + OSM + Mouse 配置
     ├── rules.mk           # Vial/VIA + Combo + Caps Word
-    └── vial.json          # Vial GUI 布局描述
+    └── vial.json          # Vial GUI 布局描述 + customKeycodes
+
+keyboards/dolphin54/       # 同上结构，54 键
 ```
+
+> **注意两件事：**
+> 1. `users/vial/` 只对「keymap 名 = vial」的键盘生效。本仓库正好只有 dolphin52/54
+>    是 vial keymap（ferris 用 yekingyan）。失效方式是**静默的**（编译成功但看门狗与
+>    USB 自恢复全丢），所以 CI 里有专门的守卫 `Verify shared users/vial/dolphin5x.c was compiled`。
+> 2. **CI 必须把 `users/vial` 拷进 vial-qmk**，见工作流的 `Copy keyboard definitions and userspace` 步。
+> 3. 键盘目录下曾经有过 `serial_vendor.c`（vendored 上游驱动），**2026-08-11 已删除**。
 
 ---
 

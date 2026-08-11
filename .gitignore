@@ -17,3 +17,8 @@ compile_commands.json
 
 # kb-diag.sh 的本地基线（每次刷机/重启都会变，不入库以免噪音）
 scripts/.kb-baseline
+
+# kb-diag.sh 的自动记录游标与事件历史（本机数据，不入库）
+scripts/.kb-state
+scripts/.kb-events.log
+scripts/.kb-watch.out

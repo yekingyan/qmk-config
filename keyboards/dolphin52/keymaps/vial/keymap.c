@@ -9,6 +9,7 @@
  */
 
 #include QMK_KEYBOARD_H
+#include "dolphin5x.h"   // dolphin_usb_diag_report()：USB 失声诊断计数
 
 enum layers {
     _BASE,
@@ -29,6 +30,8 @@ enum custom_keycodes {
     SK_LSFT,  // Sticky Shift
     // Mac Nav: ⌘ 剪贴板 + ⌥ 方向键
     SW_APP_MAC,  // ⌘+Tab (Mac 版 Swapper)
+    // 按一下把 USB 失声自恢复的诊断计数敲进当前输入框，字段含义见 dolphin5x.h
+    USB_DIAG,
 };
 
 static bool sw_app_active = false;
@@ -85,6 +88,12 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
                              (keycode == SK_LCTL) ? MOD_BIT(KC_LCTL) :
                                                     MOD_BIT(KC_LSFT);
                 sticky_mod_add(mod);  // 累加，重复按等同刷新计时
+            }
+            return false;
+
+        case USB_DIAG:
+            if (record->event.pressed) {
+                dolphin_usb_diag_report();
             }
             return false;
 
@@ -205,7 +214,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 
     [_FUN] = LAYOUT(
         QK_BOOTLOADER, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX,    XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, QK_BOOTLOADER,
-        XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX,    XXXXXXX, KC_F7,   KC_F8,   KC_F9,   KC_F12,  XXXXXXX,
+        USB_DIAG, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX,    XXXXXXX, KC_F7,   KC_F8,   KC_F9,   KC_F12,  XXXXXXX,
         XXXXXXX, SK_LGUI, SK_LALT, SK_LCTL, SK_LSFT,XXXXXXX, XXXXXXX,KC_F4,KC_F5,KC_F6,KC_F11,XXXXXXX,
         XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX,    XXXXXXX, KC_F1,   KC_F2,   KC_F3,   KC_F10,  XXXXXXX,
         _______,  _______,                               KC_ENT,  KC_BSPC
