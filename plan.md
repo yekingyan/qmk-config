@@ -1338,6 +1338,14 @@ make dolphin54:vial 2>&1 | grep 'users/vial/dolphin5x.c'
 - **Nav-Mac 层**：Mac 对应键使用标准 `G()`/`A()` 宏（⌘剪贴板 + ⌥词跳）
 - **OSM 粘滞修饰**：QMK 内置 `OSM()` 在 LT 激活层上有 bug（独立按键发送），改用自定义 `SK_LGUI/LALT/LCTL/LSFT`
   - 行为对齐 ZMK `&skn`：chain 累加（多个修饰可叠加），1s 超时释放，重复按只刷新计时不 toggle-off
+  - **释放时机 = 下一个输出键「按下」之后立刻放**（ZMK 里叫 `quick-release`），实现在
+    `post_process_record_user()`。**不能等那个键松手**：打字必然滚动重叠，
+    「粘滞 Shift → 打 cap」的事件序列是 按c→按a→松c→松a，等松手放 Shift 会让 `a` 也带上 Shift，
+    打出 `CAp`（2026-08-11 修）。修饰键本身不消费粘滞状态，所以 `SK_LCTL → SK_LSFT → P`
+    仍是 Ctrl+Shift+P。**只改了 dolphin54，dolphin52 未同步**（2026-08-11 用户决定先不管，
+    dolphin52 还没刷机验证；哪天要动它，照搬 `dolphin54/keymaps/vial/keymap.c` 里的
+    `sticky_consumed_by()` + `post_process_record_user()`，并删掉 `process_record_user()`
+    末尾那段「松手时清」）
   - 左手 Nav 层 A/S/D/F = Win/Alt/Ctrl/Shift 粘滞；右手 Sym/Mouse/Media 层镜像区同样
 - **Combo**：S+D=Esc、J+K=LShift、F+J=CapsWord（F+J 跨手可能不触发，备用 Nav 层 G 位 CW_TOGG）
   - **必须在 `keyboard_post_init_user()` 里播种进 EEPROM，不能用官方静态定义**：
@@ -1364,6 +1372,7 @@ make dolphin54:vial 2>&1 | grep 'users/vial/dolphin5x.c'
 |------|------|------|
 | USB 唤醒假死（Wake-up Zombie State） | 笔记本 5V 持续供电 + RP2040 深度休眠/握手时序问题 | `config.h` 中定义 `#define NO_SUSPEND_POWER_DOWN` 和 `#define NO_USB_STARTUP_CHECK` |
 | OSM 被 LT 松手吞掉 | QMK#20269，tap/hold 共用代码 | 自定义 SK_* 替代 |
+| 粘滞 Shift 点一下后打 `cap` 出 `CAp`（前两个字母都大写） | 粘滞修饰原来在「下一个键**松手**时」才释放，而打字必然滚动重叠：按c→**按a**→松c→松a，`a` 按下时 Shift 还在 | 改成「下一个输出键**按下**之后立刻释放」，钩子挂 `post_process_record_user()` —— 它在 `process_record_handler()` 之后执行（`quantum/action.c:298-299`），此时目标键的 HID 报文已带修饰键发出，所以只影响后面的键。等价于 ZMK sticky-key 的 `quick-release`。**修饰键不消费粘滞状态**（`IS_MODIFIER_KEYCODE` 本就落在 `IS_BASIC_KEYCODE` 区间外），Ctrl+Shift+P 报文序仍是 `Ctrl↓Shift↓P↓ → Shift↑Ctrl↑`，快捷键在 P 的 keydown 上触发 |
 | 使用中偶发整机假死（键盘 HID + raw HID + console 三条 IN 端点同时死，只有拔插能恢复） | 首选 **RP2040 勘误 E15**：*"USB Device controller will hang if certain bus errors occur during an IN transfer"*，ChibiOS 驱动零 errata 处理；次要候选是设备级 `USB_DRIVER.state` 卡在非 `USB_ACTIVE`，`usb_endpoint_in_send()` 入口静默丢弃全部报文 | 已采用方案 2：`dolphin5x.c` 中「状态非 ACTIVE 或帧号停滞 >100ms」+ 按键活动门控 → `usbWakeupHost()` → `restart_usb_driver()`(2s，只做一次) → 5s 宽限 → `mcu_reset()`(累计 10s)。硬件看门狗对此**无效**（主循环活着，狗照喂）|
 | 自动恢复反而让主机弹「无法识别的 USB 设备」 | 第 2 级 `restart_usb_driver()` 之后主机要重新枚举，而 `USB_DRIVER.state` 要到 SET_CONFIGURATION 才回 `USB_ACTIVE` → 枚举全程被检测器判为「还是死的」→ 每 3s 再 `usbDisconnectBus()` 一次，把枚举掐断；`stuck_since` 又从不重置，10s 到了还叠一次 `mcu_reset()` | 恢复动作后设 5s 宽限期（`DOLPHIN_USB_RECOVERY_GRACE_MS`）整段静默，且第 2 级每个失声周期只做一次（`restart_tried`），宽限期过完仍死才升级到第 3 级。**通用教训：自动恢复必须豁免「恢复动作本身造成的不健康」** |
 | 排查时误用「bootloader 能进」排除 keymap 层卡住 | 该论证只能排除比 _FUN 更高的层；_FUN 自身卡住时左手拇指透传成 Space/Tab、左上角正是 `QK_BOOTLOADER`，观察完全吻合 | 用不经过 keymap 的通路判别：Vial(raw HID) 与 console 是否也死 |

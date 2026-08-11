@@ -38,7 +38,7 @@ static bool sw_app_active = false;
 static bool sw_app_mac = false;  // true=⌘+Tab, false=Alt+Tab
 
 // 自定义粘滞修饰 (替代内置 OSM，规避 LT 层干扰)
-// 支持 chain 模式: 多个修饰键累加，非修饰键松开时全部释放
+// 支持 chain 模式: 多个修饰键累加；下一个输出键**按下**后立即全部释放
 // 用 register_code(KC_*) 而非 register_mods()，确保 IME 能识别 LSHFT 切换中英文
 static uint8_t  sticky_mods = 0;
 static uint16_t sticky_deadline = 0;
@@ -70,6 +70,45 @@ static void sticky_mod_clear(void) {
         }
     }
     sticky_mods = 0;
+}
+
+/* 这个按键该不该「消费」粘滞修饰？
+ *
+ * 只有真正会产生输出的键才消费。修饰键一律不消费 —— 这是 Ctrl+Shift+P
+ * （SK_LCTL → SK_LSFT → P）以及「粘滞修饰 + 物理 Shift」能正常工作的前提，
+ * 语义与 QMK 内置 OSM 一致（`action.c` 里判 `!IS_MODIFIER_KEYCODE`）。
+ */
+static bool sticky_consumed_by(uint16_t keycode, keyrecord_t *record) {
+    if (IS_QK_MOD_TAP(keycode) || IS_QK_LAYER_TAP(keycode)) {
+        // 判成 hold（加修饰 / 切层）时不消费；判成 tap 时按它的 tap 键码算
+        if (record->tap.count == 0) return false;
+        keycode &= 0xFF;
+    } else if (IS_QK_MODS(keycode)) {
+        keycode &= 0xFF;  // C(KC_LEFT) / S(KC_TAB) 这类：看底下的基础键码
+    }
+    if (IS_MODIFIER_KEYCODE(keycode)) return false;
+    // 层切换键、QMK/Vial 功能键、KC_NO 都不是基础键码 → 不消费
+    return IS_BASIC_KEYCODE(keycode);
+}
+
+/* 粘滞修饰的释放时机：目标键**按下**之后立刻放，不等它松手。
+ *
+ * 等松手是不行的（2026-08-11 修）：打字必然有滚动重叠，打 "cap" 的实际事件序列是
+ * 按c → 按a → 松c → 松a，等到「松 c」才放 Shift，`a` 早就带着 Shift 发出去了，
+ * 结果是 `CAp`。
+ *
+ * 挂在 post_process 而不是 process 里，是因为 `process_record_handler()`
+ * （register 键码 + 发 HID 报文）先执行、`post_process_record_quantum()` 后执行
+ * （见 quantum/action.c:298-299）。所以进到这里时目标键的报文已经带着修饰键发出去了，
+ * 此刻松开修饰不会影响它，只影响后面的键。Ctrl+Shift+P 的报文顺序仍是
+ * `Ctrl↓ Shift↓ P↓` → `Shift↑ Ctrl↑`，快捷键在 P 的 keydown 上就已经触发。
+ *
+ * 等价于 ZMK sticky-key 的 `quick-release`。
+ */
+void post_process_record_user(uint16_t keycode, keyrecord_t *record) {
+    if (sticky_mods && record->event.pressed && sticky_consumed_by(keycode, record)) {
+        sticky_mod_clear();
+    }
 }
 
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
@@ -114,16 +153,8 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
             return false;
     }
 
-    // 非修饰键松开时释放所有粘滞修饰 (chain 消费)
-    // 排除: 所有自定义键码 (管理自己的修饰键)、LT/MO 层切换键
-    if (sticky_mods
-        && (keycode < QK_KB || keycode > QK_KB_MAX)
-        && !IS_QK_LAYER_TAP(keycode)
-        && !IS_QK_MOMENTARY(keycode)) {
-        if (!record->event.pressed) {
-            sticky_mod_clear();
-        }
-    }
+    // 粘滞修饰的释放交给 post_process_record_user()（在目标键按下之后立刻放）。
+    // 这里**不能**再按「松手时清」处理 —— 那会让打字滚动中的下一个键也吃到修饰键。
     return true;
 }
 
