@@ -8,7 +8,8 @@
 #
 # 用法：
 #   scripts/kb-diag.sh              查看当前状态、与基线对比，并自动记录新事件
-#   scripts/kb-diag.sh --baseline   把当前枚举时刻记为新基线（刷机后 / 重启后必做）
+#   scripts/kb-diag.sh --baseline   把当前枚举时刻记为新基线（重启电脑后必做）
+#   scripts/kb-diag.sh --flashed    刷机后专用：记基线 + 打一个「固件刷入」标记
 #   scripts/kb-diag.sh --log        额外输出最近的 USB/HID 与电源事件日志
 #   scripts/kb-diag.sh --history    打印事件历史（默认最近 20 条，可 --history 50）
 #   scripts/kb-diag.sh --watch [秒] 后台盯着，每 N 秒采样一次（默认 60）
@@ -18,10 +19,15 @@
 # 关键判读（详见 plan.md「下次失声时怎么做」）：
 #   枚举时刻变了而你没拔线  => 期间发生过一次失声，并被自动恢复救回
 #   恢复耗时约 2 秒         => 第 2 级 restart_usb_driver（E15 硬件锁死的预期表现）
-#   恢复耗时约 10 秒        => 第 3 级 mcu_reset
+#   恢复耗时约 10 秒        => 第 3 级整芯片复位
 #   完全没恢复             => 见 plan.md 情况 B，拔线前先按几个键等 6 秒
 #   出现「枚举失败」记录    => 主机侧弹过「无法识别的 USB 设备」，
 #                             即恢复动作打断了自己的枚举，见 plan.md「自伤」一节
+#
+# 为什么「枚举失败」要跟固件刷入时刻比：Windows 会把失败枚举的残留节点
+# （USB\VID_0000&PID_0002，FriendlyName 含 Device Descriptor Request Failed）
+# 长期留在 PnP 库里，按物理端口归档。换了 USB 口就可能撞上那个口上几天前的旧记录，
+# 拿它告警纯属误导。所以只有「晚于本次固件刷入」的才算证据 —— 用 --flashed 打标记。
 #
 # 为什么需要事件历史：Windows 的 LastArrivalDate 只保留**最后一次**枚举，
 # 而 Kernel-PnP 的日志对「已安装设备的重新枚举」一条都不记（实测近 12 小时零记录）。
@@ -35,8 +41,13 @@ BASELINE_FILE="$SCRIPT_DIR/.kb-baseline"
 STATE_FILE="$SCRIPT_DIR/.kb-state"      # 自动记录用的「上次看到的值」
 EVENTS_FILE="$SCRIPT_DIR/.kb-events.log" # append-only 事件历史
 
+FLASHED_AT=""   # 上次 --flashed 记下的固件刷入时刻，由 record_events 从 .kb-state 读出
+NEW_EVENTS=0
+PORT=""
+
 SHOW_LOG=0
 SET_BASELINE=0
+MARK_FLASHED=0
 SHOW_HISTORY=0
 HISTORY_N=20
 WATCH=0
@@ -46,13 +57,14 @@ QUIET=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --baseline) SET_BASELINE=1 ;;
+        --flashed)  SET_BASELINE=1; MARK_FLASHED=1 ;;
         --log)      SHOW_LOG=1 ;;
         --quiet)    QUIET=1 ;;
         --history)  SHOW_HISTORY=1
                     case "${2:-}" in [0-9]*) HISTORY_N="$2"; shift ;; esac ;;
         --watch)    WATCH=1
                     case "${2:-}" in [0-9]*) WATCH_SEC="$2"; shift ;; esac ;;
-        -h|--help)  sed -n '2,32p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help)  sed -n '2,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "未知参数: $1（试试 --help）" >&2; exit 2 ;;
     esac
     shift
@@ -165,18 +177,31 @@ record_events() {
     if [ -f "$STATE_FILE" ]; then
         prev_arrival="$(sed -n 's/^arrival=//p'  "$STATE_FILE" | head -1)"
         prev_failenum="$(sed -n 's/^failenum=//p' "$STATE_FILE" | head -1)"
+        FLASHED_AT="$(sed -n 's/^flashed=//p'   "$STATE_FILE" | head -1)"
     fi
 
     if [ -n "$arrival" ] && [ -n "$prev_arrival" ] && [ "$arrival" != "$prev_arrival" ]; then
         printf '%s  RE-ENUM       %s  ->  %s\n' "$now" "$prev_arrival" "$arrival" >> "$EVENTS_FILE"
         n=$((n+1))
     fi
+    # 只把「晚于本次刷机」的失败枚举记成事件，否则换 USB 口时会把旧端口记录当成新事件
     if [ -n "$failenum" ] && [ "$failenum" != "$prev_failenum" ]; then
-        printf '%s  FAILED-ENUM   %s  （主机弹过「无法识别的 USB 设备」）\n' "$now" "$failenum" >> "$EVENTS_FILE"
-        n=$((n+1))
+        if [ -z "$FLASHED_AT" ] || [ ! "$failenum" \< "$FLASHED_AT" ]; then
+            printf '%s  FAILED-ENUM   %s  （主机弹过「无法识别的 USB 设备」）\n' "$now" "$failenum" >> "$EVENTS_FILE"
+            n=$((n+1))
+        fi
     fi
 
-    { printf 'arrival=%s\n' "$arrival"; printf 'failenum=%s\n' "$failenum"; } > "$STATE_FILE"
+    if [ "$MARK_FLASHED" = "1" ]; then
+        FLASHED_AT="$now"
+        printf '%s  FLASHED       固件刷入，观察窗口从此重新计起（端口 %s）\n' "$now" "${PORT:-?}" >> "$EVENTS_FILE"
+    fi
+
+    {
+        printf 'arrival=%s\n' "$arrival"
+        printf 'failenum=%s\n' "$failenum"
+        printf 'flashed=%s\n' "${FLASHED_AT:-}"
+    } > "$STATE_FILE"
     NEW_EVENTS="$n"
 }
 
@@ -232,11 +257,17 @@ report() {
         echo "卡住修饰键 : ✗ $STUCK   ← 主机侧残留按下状态，值得注意"
     fi
 
-    # 枚举失败残留节点
+    # 枚举失败残留节点。只有「晚于本次固件刷入」的才算证据 —— Windows 会把这类
+    # 节点按物理端口长期留在 PnP 库里，换个 USB 口就可能撞上那个口上几天前的旧记录。
     if [ -n "$FAILENUM" ]; then
-        echo "枚举失败    : ⚠ 最近一次 $FAILENUM（同一物理端口）"
-        echo "              主机弹过「无法识别的 USB 设备」。若时间点在当前固件"
-        echo "              之后，说明恢复动作打断了自己的枚举 —— 见 plan.md「自伤」一节。"
+        if [ -n "$FLASHED_AT" ] && [ "$FAILENUM" \< "$FLASHED_AT" ]; then
+            echo "枚举失败    : （端口 $PORT 上有一条 $FAILENUM 的旧记录，早于本次刷机"
+            echo "              $FLASHED_AT，与当前固件无关，忽略）"
+        else
+            echo "枚举失败    : ⚠ $FAILENUM（同一物理端口 $PORT）"
+            echo "              主机弹过「无法识别的 USB 设备」= 恢复动作打断了自己的枚举，"
+            echo "              见 plan.md「自伤」一节。本次固件刷入于 ${FLASHED_AT:-未记录}。"
+        fi
     else
         echo "枚举失败    : 无（同一端口上没有 Device Descriptor Request Failed 残留）"
     fi
