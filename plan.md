@@ -702,7 +702,23 @@ bool is_keyboard_master_impl(void) {          // 覆盖上游的 weak 实现
 也只定义在 `split_util.c` 内部，所以 fallback 分支**复刻了上游 `usb_bus_detected()` 的逻辑**。
 这与 2026-08-11 撤掉的 `serial_vendor.c` 属同一类做法（vendored 上游逻辑），
 区别是这段是纯逻辑、不是时序敏感驱动，漂移风险低得多。
-**若上游改了主从判定方式，这里要跟着同步。**
+
+**已加 CI 守卫** `Guard upstream split master-detection assumptions`：
+不做整文件 sha256（`split_util.c` 会因无关改动频繁变化，整文件哈希会天天误报），
+只 grep 我们真正依赖的 6 条假设：
+
+| # | 假设 | grep 的上游原文 |
+|---|------|---------------|
+| 1 | `is_keyboard_master_impl` 仍是 weak（我们才能覆盖）| `__attribute__((weak)) bool is_keyboard_master_impl(void)` |
+| 2 | 轮询上限仍是 `SPLIT_USB_TIMEOUT / SPLIT_USB_TIMEOUT_POLL` | `for (uint16_t i = 0; i < (SPLIT_USB_TIMEOUT / SPLIT_USB_TIMEOUT_POLL); i++)` |
+| 3 | 轮询的仍是 `usb_connected_state()` | `if (usb_connected_state())` |
+| 4 | `SPLIT_USB_TIMEOUT_POLL` 默认仍是 10（我们本地也写 10）| `define SPLIT_USB_TIMEOUT_POLL 10` |
+| 5 | 判定为从手时仍调 `usb_disconnect()` | `usb_disconnect();` |
+| 6 | `is_keyboard_left_impl` 默认分支仍是「手别跟着主从走」| `return is_keyboard_master();` |
+
+任一条失效就构建失败，并打印 `split_util.c` 的相关片段 + 提示同步
+`users/vial/dolphin5x.c` 与复核本节推理。通过路径与两条失败路径（上游去掉 weak、
+上游改掉轮询形态）都已本地实跑验证。
 
 反汇编核对（`LTO_ENABLE=no`）：
 
@@ -1137,7 +1153,19 @@ PowerShell 输出是 CRLF，**必须 `tr -d '\r'`**，否则每个字段尾部�
 
 **分支 E — CI 构建失败**
 
-现在只有一道守卫：
+现在有两道守卫：
+
+- `Guard upstream split master-detection assumptions` → **上游改了主从判定的语义**。
+  我们在 `users/vial/dolphin5x.c` 里覆盖了 weak 的 `is_keyboard_master_impl()`（Sticky master），
+  其 fallback 分支复刻了上游 `usb_bus_detected()` 的逻辑。日志会打出是哪一条假设失效、
+  期望匹配什么，并附上 `split_util.c` 的相关片段。照着同步我们那份实现，
+  同时复核「新发现的风险 / Sticky master」一节的推理是否仍成立。
+  六条假设的清单见那一节。
+
+  > 为什么不做整文件 sha256：`split_util.c` 会因无关改动频繁变化，
+  > 整文件哈希会天天误报。这是从 `serial_vendor.c` 那道守卫学到的教训 ——
+  > 那次是**整份复制**上游文件，所以整文件哈希是对的；这次只依赖几条语义，
+  > 就该只校验那几条。
 
 - `Verify shared users/vial/dolphin5x.c was compiled` → 共享文件没被编进去。
   这个守卫存在的理由是**失效是静默的**：编译照样成功，只是硬件看门狗、
@@ -1280,6 +1308,7 @@ make dolphin54:vial 2>&1 | grep 'users/vial/dolphin5x.c'
 | 排查时误用「bootloader 能进」排除 keymap 层卡住 | 该论证只能排除比 _FUN 更高的层；_FUN 自身卡住时左手拇指透传成 Space/Tab、左上角正是 `QK_BOOTLOADER`，观察完全吻合 | 用不经过 keymap 的通路判别：Vial(raw HID) 与 console 是否也死 |
 | `serial_vendor.c` 忙等上界（**2026-08-11 已撤销**） | 修的是真实上游隐患，但已证明不是本故障原因 | 撤销理由：代价是 vendored 一个上游时序敏感驱动 + 两道 CI 守卫 + 版本同步负担，而该隐患恰好能被硬件看门狗兜住（串口死锁 → 主循环停摆 → 4s 后狗复位）。反汇编确认 `0x0eeb`(3819) 已从二进制消失 |
 | 共享代码放 `users/vial/` 后，失效方式是**静默的** | QMK 的 userspace 机制只在「keymap 名 == `users/` 下目录名」时才把该目录加入 VPATH 并 include 其 `rules.mk`；一旦机制变了或 CI 忘拷 `users/`，构建照样成功，只是看门狗与 USB 自恢复全丢 | CI 守卫 `Verify shared users/vial/dolphin5x.c was compiled`：构建后 grep 日志确认它被编译 |
+| 覆盖 weak 的 `is_keyboard_master_impl()` 时不得不复刻上游 `usb_bus_detected()` 的逻辑，上游改语义会静默失效 | 上游那个函数是 `static`、`SPLIT_USB_TIMEOUT_POLL` 也只定义在 `split_util.c` 内部，拿不到 | CI 守卫 `Guard upstream split master-detection assumptions`：只 grep 我们依赖的 6 条语义假设，**不做整文件 sha256**（`split_util.c` 会因无关改动频繁变化，整文件哈希会天天误报）|
 | CI 只拷 `keyboards/`，不拷 `users/` | 早期工作流只 `cp -r keyboards/dolphinXX`，把共享代码搬到 `users/vial/` 后会漏 | 工作流的 `Copy keyboard definitions and userspace into vial-qmk` 步显式 `cp -r users/vial vial-qmk/users/vial` |
 | 主手卡死后只能手动拔插 USB 才能恢复 | `SPLIT_WATCHDOG_ENABLE` 仅对从手生效（`split_watchdog_task()` 里 `!is_keyboard_master()`），主手无任何看门狗 | `dolphin5x.c` 中启用 RP2040 硬件看门狗：`watchdog_enable(4000, false)` + 在 `housekeeping_task_kb` 里 `watchdog_update()` 喂狗 |
 | 启用硬件看门狗后不能去掉 `NO_USB_STARTUP_CHECK` | `protocol_pre_task()` 的 USB 挂起阻塞循环内不调用 `housekeeping_task()`，去掉该宏后休眠期间无法喂狗 | 两者互斥，保留 `NO_USB_STARTUP_CHECK` |

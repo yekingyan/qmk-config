@@ -39,6 +39,50 @@ jobs:
           mkdir -p vial-qmk/users
           cp -r users/vial vial-qmk/users/vial
 
+      # 守卫 A：我们在 users/vial/dolphin5x.c 里覆盖了上游 weak 的
+      # `is_keyboard_master_impl()`（Sticky master）。覆盖本身是被允许的，但它的
+      # fallback 分支**复刻了上游 `usb_bus_detected()` 的逻辑** —— 因为那个函数是
+      # static、`SPLIT_USB_TIMEOUT_POLL` 也只定义在 split_util.c 内部，拿不到。
+      #
+      # 于是上游一旦改了主从判定的语义（改成先读 VBUS、调整 usb_disconnect() 时机、
+      # 把轮询挪走……），我们那份 fallback 会**静默地按旧语义工作**，编译照样成功。
+      # 这里只校验我们真正依赖的那几个假设，不做整文件 sha256 ——
+      # split_util.c 会因无关改动频繁变化，整文件哈希会天天误报。
+      - name: Guard upstream split master-detection assumptions
+        run: |
+          set -uo pipefail
+          F=vial-qmk/quantum/split_common/split_util.c
+          fail=0
+          check() { # check <描述> <grep 正则>
+            if grep -Eq -- "$2" "$F"; then
+              echo "  ✓ $1"
+            else
+              echo "::error::上游假设已失效: $1"
+              echo "     期望匹配: $2"
+              fail=1
+            fi
+          }
+          echo "校验 $F 中我们依赖的假设："
+          check "is_keyboard_master_impl 仍是 weak（我们才能覆盖它）" \
+                '__attribute__\(\(weak\)\) bool is_keyboard_master_impl\(void\)'
+          check "usb_bus_detected 仍按 SPLIT_USB_TIMEOUT / SPLIT_USB_TIMEOUT_POLL 轮询" \
+                'for \(uint16_t i = 0; i < \(SPLIT_USB_TIMEOUT / SPLIT_USB_TIMEOUT_POLL\); i\+\+\)'
+          check "usb_bus_detected 轮询的仍是 usb_connected_state()" \
+                'if \(usb_connected_state\(\)\)'
+          check "SPLIT_USB_TIMEOUT_POLL 默认值仍是 10（我们本地也用 10）" \
+                'define SPLIT_USB_TIMEOUT_POLL 10'
+          check "判定为从手时仍调 usb_disconnect()" \
+                'usb_disconnect\(\);'
+          check "is_keyboard_left_impl 默认分支仍是 return is_keyboard_master()（手别跟着主从走）" \
+                'return is_keyboard_master\(\);'
+          if [ "$fail" != "0" ]; then
+            echo "----- split_util.c 中相关片段 -----"
+            sed -n '30,60p;175,235p' "$F"
+            echo "::error::请同步 users/vial/dolphin5x.c 里的 is_keyboard_master_impl()，"
+            echo "::error::并复核 plan.md「新发现的风险 / Sticky master」一节的推理是否仍成立。"
+            exit 1
+          fi
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
