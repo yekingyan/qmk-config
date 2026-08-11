@@ -288,13 +288,27 @@ void keyboard_post_init_user(void) {
     // debug_matrix = true;
     // debug_keyboard = true;
 
-    static const uint16_t keys[][3] = {
-        {KC_S, KC_D, COMBO_END}, {KC_J, KC_K, COMBO_END}, {KC_F, KC_J, COMBO_END},
+    // 每行 4 个元素，与 vial_combo_entry_t.input[4] 等长（该结构体在 vial.h 里有
+    // sizeof == 10 的 _Static_assert）。下面的 memcpy 按 sizeof(entry.input)=8 字节拷，
+    // 行长必须是 4，否则会读到下一行的首元素。
+    //
+    // 主键区 combo（S+D → ESC、J+K → LSFT、F+J → CW_TOGG）已移除：
+    // 54 键的外围区本来就有物理 KC_ESC（左上角）与 KC_LSFT（A 行最左），三者纯冗余，
+    // 且是打字滚动时的误触来源。与 ZMK dolphin36 的处置一致。
+    static const uint16_t keys[][4] = {
+        // 双拇指切层：左 Space+Tab → _FUN，右 Enter+Bspc → _MEDIA。
+        // 输入必须写成键位上实际的完整键码（QMK 文档 Advanced Keycodes Support 一节），
+        // 所以这两条只有在 Vial 里把四个内侧拇指配成对应 LT 之后才会生效 ——
+        // 默认键位里拇指是普通键，这是已定案的设计（见 plan.md「拇指切层」）。
+        {LT(_NAV, KC_SPC), LT(_NUM, KC_TAB), COMBO_END, 0},
+        {LT(_SYM, KC_ENT), LT(_MOUSE, KC_BSPC), COMBO_END, 0},
     };
-    static const uint16_t outputs[] = { KC_ESC, KC_LSFT, CW_TOGG };
+    static const uint16_t outputs[] = { MO(_FUN), MO(_MEDIA) };
+
+    const uint8_t combo_count = sizeof(outputs) / sizeof(outputs[0]);
 
     vial_combo_entry_t entry;
-    for (int i = 0; i < 3; i++) {
+    for (uint8_t i = 0; i < combo_count; i++) {
         dynamic_keymap_get_combo(i, &entry);
         if (entry.output == 0) {
             memset(&entry, 0, sizeof(entry));
