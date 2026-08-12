@@ -547,13 +547,39 @@ if (usbGetDriverStateI(endpoint->config.usbp) != USB_ACTIVE) {
 
 **恢复动作**（三级递进，代价由轻到重，共用同一套按键活动门控）：
 
-**恢复动作**（三级递进，代价由轻到重）：
-
 | 级别 | 触发时机 | 动作 | 对 E15 有效？ | 代价 |
 |------|---------|------|--------------|------|
 | 1 | 每 250ms（且尚未做过第 2 级），**窄门控 3s** | `usbWakeupHost()` | ✗（state 仍 ACTIVE，内部判断不通过）| 无 |
 | 2 | 卡满 2s，**每个失声周期只做一次**，宽门控 10s | `restart_usb_driver()`，随后进入 5s 宽限期 | **✓ 外设块硬件复位** | 主机重新枚举，MCU 不重启 |
 | 3 | 第 2 级做过 + 宽限期已过 + 累计卡满 10s + 曾 ACTIVE 过 | **`watchdog_reboot(0,0,0)`**（不是 `mcu_reset()`，理由见下）| ✓ | 等效自动拔插一次 |
+
+#### 第 2 级是「真·电气层拔插」，不是软件层重启驱动（2026-08-12 查实）
+
+```
+restart_usb_driver()                   tmk_core/protocol/chibios/usb_main.c:361（weak）
+  └─ usbDisconnectBus()
+       └─ usb_lld_disconnect_bus()      chibios-contrib .../RP/LLD/USBDv1/hal_usb_lld.h:405
+            └─ USB->CLR.SIECTRL = USB_SIE_CTRL_PULLUP_EN   // rp2040_usb.h:68, 1U<<16
+```
+
+清掉的是 **D+ 上拉电阻**，电气上与拔线等价 —— 主机根 hub 看到的就是端口断开；
+50ms 后 `usbConnectBus()` 再把上拉加回去。
+
+这解释了为什么 08-11 那几次事件里 **9 个 USB 接口的 `LastArrivalDate` 会同时跳变**：
+整个设备栈被拆掉重建了，不是驱动内部悄悄重启。
+
+**副作用：Windows 会响一对提示音。** 已确认本机三个事件都指派了音频文件
+（方案 `.Default`，注册表 `HKCU:\AppEvents\Schemes\Apps\.Default\Device{Connect,Disconnect,Fail}\.Current`）：
+
+| 听到什么 | 含义 |
+|---------|------|
+| 拔出音 + 插入音（一对） | 第 2 级正常工作，重新枚举成功 |
+| **失败音** `Hardware Fail.wav` + 「USB 不识别」弹窗 | 枚举失败。修复前那是自伤，**修复后不该再出现 —— 出现即本次修复失败** |
+| 只有拔出音、没有插入音 | 最坏情况：设备没回来，第 3 级也没救回来 |
+
+> ⚠️ **不要依赖声音做监测手段。** 2026-08-12 问过用户，没戴耳机、无法确认 08-11
+> 那几次是否响过；外放也可能是关的。声音只能当额外线索。
+> 真正的监测靠 `kb-diag.sh --watch` + 事后按 `USB_DIAG` 对账。
 
 **为什么第 3 级用 `watchdog_reboot()` 而不是 QMK 的 `mcu_reset()`**（2026-08-11 改）：
 
