@@ -31,7 +31,7 @@
 > 并且重启会改变枚举时刻，记得同时跑一次 `--baseline`。
 > 检查是否还在跑：`pgrep -af 'kb-diag.sh --watch'`
 >
-> 另外键盘上（`_FUN` 层左上 `QK_BOOTLOADER` 正下方）的 `USB_DIAG` 键能把固件侧的计数敲出来，
+> 另外如果在 Vial 里绑定了 `USB_DIAG` 自定义键码（默认不占键位，可在 Vial 自定义键中绑定），按下它能把固件侧的计数敲出来，
 > 直接告出是「软件状态卡住」还是「E15 硬件锁死」。
 >
 > **刷机后用 `--flashed`（不是 `--baseline`）**，它会打一个刷机标记，
@@ -98,6 +98,7 @@
     - 官方 `update_tri_layer_state`：无影子状态不会卡死，但条件不成立时会**强制关闭**第三层（`state & ~mask3`），与「单独配一个长按键直接进 _FUN」不兼容——键刚点亮就被抹掉
   - 附带：QMK 的 Tri Layer 特性因 `VIA_ENABLE=yes` 而自动编入（`builddefs/common_features.mk:634`），若哪天真想要「两键进第三层」，可直接在 Vial 里用 `TL_LOWR`/`TL_UPPR` 键码，无需改固件
 - [x] Console 日志与 Debug 调试配置（已注释关闭：`# CONSOLE_ENABLE = yes` 及 `debug_*` 注释保留，需要时随时取消注释）
+- [x] **`USB_DIAG` 默认不绑定键位**：`dolphin54` 与 `dolphin52` 默认 keymap 中不占用 `_FUN` 层键位（保持为 `XXXXXXX`），但在 `vial.json` 与 `dolphin5x` 固件中完整保留 `USB_DIAG` 自定义键码，支持随时在 Vial 改键界面中手动绑定。
 - [x] 显式关闭 RGB 功能（`RGBLIGHT_ENABLE = no` 及 `RGB_MATRIX_ENABLE = no`，防止向 GP23 引脚输出灯光控制信号）
 - [x] USB 唤醒防假死配置（`#define NO_SUSPEND_POWER_DOWN` + `#define NO_USB_STARTUP_CHECK`，解决笔记本 5V 持续供电导致的唤醒死机）
   - ⚠️ **`NO_USB_STARTUP_CHECK` 同时也是「USB 失声」的根源之一**：它把上游唯一的挂起检测与
@@ -118,7 +119,7 @@
   |---|------|------|
   | P0 | **恢复逻辑自伤修复** | 第 2 级做完进 5s 宽限期整段静默，且每个失声周期只做一次。修的是「Windows 弹 USB 不识别」，详见「自伤」一节 |
   | #5 | **按键活动门控拆两档** | 第 1 级（真会敲主机的那一下）保持 3s；第 2/3 级放宽到 10s（`DOLPHIN_USB_RECOVERY_WINDOW_MS`）。原来一停手就不自救 |
-  | #4 | **固件诊断计数器 + `USB_DIAG` 键码** | 条件(a)/(b) 分别计数、自愈次数、restart 次数、跨复位的芯片复位次数、卡住时的 state。按键用 `send_string` 打出来。字段含义见 `users/vial/dolphin5x.h`。**键位在 `_FUN` 层左上 `QK_BOOTLOADER` 正下方**（矩阵 `[1,0]`，原来是空位） |
+  | #4 | **固件诊断计数器 + `USB_DIAG` 键码** | 条件(a)/(b) 分别计数、自愈次数、restart 次数、跨复位的芯片复位次数、卡住时的 state。按键用 `send_string` 打出来。字段含义见 `users/vial/dolphin5x.h`。**默认不绑键位，支持随时在 Vial 自定义键码列表中手动绑定** |
   | #6 | **消除 dolphin52.c/54.c 重复** | 合并为 `users/vial/dolphin5x.c`，走 QMK userspace 机制。CI 新增守卫确认它真的被编进去了 |
   | #9 | **撤掉 `serial_vendor.c` 本地覆盖** | 连同两道旧 CI 守卫一起移除 |
   | #2 | **第 3 级改用 `watchdog_reboot()`** | `mcu_reset()` = `NVIC_SystemReset()` 不复位外设；`watchdog_reboot` 经 `psm_hw->wdsel` 复位「除 ROSC/XOSC 之外的一切」，**包含 USB 外设块**。顺带提供可靠的软复位判据 `watchdog_hw->reason` |
