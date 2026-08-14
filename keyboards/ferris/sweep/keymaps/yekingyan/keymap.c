@@ -160,9 +160,8 @@ bool caps_word_press_user(uint16_t keycode) {
 // ==========================================
 // Combos — 由 Vial GUI 管理
 // ==========================================
-// 刷完固件后在 Vial 中配置以下 5 个 combo：
+// 刷完固件后在 Vial 中配置以下 4 个 combo：
 //   S + D        → ESC
-//   F + J        → CW_TOGG (Caps Word)
 //   J + K        → LSFT
 //   左双拇指      → MO(FUN)    [pos 30 + 31]
 //   右双拇指      → MO(MEDIA)  [pos 32 + 33]
@@ -182,8 +181,8 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 
     // Layer 1: Nav & Mods
     [_NAV] = LAYOUT_split_3x5_2(
-        SW_APP,        S(KC_TAB),     KC_ENT,        KC_LSFT,        KC_BSPC,           C(KC_LEFT), C(KC_D),    C(KC_U),    C(KC_RGHT), KC_DEL,
-        OSM(MOD_LGUI), OSM(MOD_LALT), OSM(MOD_LCTL), OSM(MOD_LSFT),  CW_TOGG,           KC_LEFT,    KC_DOWN,    KC_UP,      KC_RGHT,    C(KC_DEL),
+        SW_APP,        S(KC_TAB),     XXXXXXX,       KC_LSFT,        XXXXXXX,           C(KC_LEFT), C(KC_D),    C(KC_U),    C(KC_RGHT), KC_DEL,
+        OSM(MOD_LGUI), OSM(MOD_LALT), OSM(MOD_LCTL), OSM(MOD_LSFT),  KC_CAPS,           KC_LEFT,    KC_DOWN,    KC_UP,      KC_RGHT,    C(KC_DEL),
         C(KC_Z),       C(KC_X),       C(KC_C),       C(KC_V),        _______,           KC_HOME,    KC_PGDN,    KC_PGUP,    KC_END,     C(KC_BSPC),
                                                       _______,        _______,           _______,    _______
     ),

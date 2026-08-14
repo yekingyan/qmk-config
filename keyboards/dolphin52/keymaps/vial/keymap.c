@@ -182,8 +182,8 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 
     [_NAV] = LAYOUT(
         XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX,    XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX,
-        XXXXXXX, SW_APP,  S(KC_TAB),KC_ENT,  KC_LSFT, KC_BSPC,    C(KC_LEFT), C(KC_D), C(KC_U), C(KC_RGHT), KC_DEL, XXXXXXX,
-        XXXXXXX, SK_LGUI, SK_LALT, SK_LCTL, SK_LSFT,CW_TOGG, KC_LEFT,KC_DOWN,KC_UP,KC_RGHT,C(KC_DEL),XXXXXXX,
+        XXXXXXX, SW_APP,  S(KC_TAB),XXXXXXX, KC_LSFT, XXXXXXX,    C(KC_LEFT), C(KC_D), C(KC_U), C(KC_RGHT), KC_DEL, XXXXXXX,
+        XXXXXXX, SK_LGUI, SK_LALT, SK_LCTL, SK_LSFT,KC_CAPS, KC_LEFT,KC_DOWN,KC_UP,KC_RGHT,C(KC_DEL),XXXXXXX,
         XXXXXXX, C(KC_Z), C(KC_X), C(KC_C), C(KC_V), XXXXXXX,    KC_HOME, KC_PGDN, KC_PGUP, KC_END,  C(KC_BSPC),XXXXXXX,
         _______,  _______,                                KC_ENT,  KC_BSPC
     ),
@@ -222,8 +222,8 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 
     [_NAV_MAC] = LAYOUT(
         XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX,    XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX, XXXXXXX,
-        XXXXXXX, SW_APP_MAC,S(KC_TAB),XXXXXXX, XXXXXXX, XXXXXXX, A(KC_LEFT), C(KC_D), C(KC_U), A(KC_RGHT), KC_DEL, XXXXXXX,
-        XXXXXXX, SK_LGUI, SK_LALT, SK_LCTL, SK_LSFT, CW_TOGG,    KC_LEFT, KC_DOWN, KC_UP, KC_RGHT, A(KC_DEL),  XXXXXXX,
+        XXXXXXX, SW_APP_MAC,S(KC_TAB),XXXXXXX, KC_LSFT, XXXXXXX, A(KC_LEFT), C(KC_D), C(KC_U), A(KC_RGHT), KC_DEL, XXXXXXX,
+        XXXXXXX, SK_LGUI, SK_LALT, SK_LCTL, SK_LSFT, KC_CAPS,    KC_LEFT, KC_DOWN, KC_UP, KC_RGHT, A(KC_DEL),  XXXXXXX,
         XXXXXXX, G(KC_Z),  G(KC_X),  G(KC_C),  G(KC_V),  XXXXXXX,   KC_HOME, KC_PGDN, KC_PGUP, KC_END,  A(KC_BSPC), XXXXXXX,
         _______,  _______,                                KC_ENT,  KC_BSPC
     ),
@@ -243,12 +243,12 @@ extern uint16_t key_combos_keys[][5];
 
 void keyboard_post_init_user(void) {
     static const uint16_t keys[][3] = {
-        {KC_S, KC_D, COMBO_END}, {KC_J, KC_K, COMBO_END}, {KC_F, KC_J, COMBO_END},
+        {KC_S, KC_D, COMBO_END}, {KC_J, KC_K, COMBO_END},
     };
-    static const uint16_t outputs[] = { KC_ESC, KC_LSFT, CW_TOGG };
+    static const uint16_t outputs[] = { KC_ESC, KC_LSFT };
 
     vial_combo_entry_t entry;
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < 2; i++) {
         dynamic_keymap_get_combo(i, &entry);
         if (entry.output == 0) {
             memset(&entry, 0, sizeof(entry));
