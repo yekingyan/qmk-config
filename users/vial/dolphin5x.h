@@ -16,7 +16,7 @@
  *   b    条件(b) 帧号停滞命中次数                → E15 硬件锁死
  *   heal 检测到失活但在第 2 级触发前自愈的次数    → 这个数大说明检测器过敏
  *   rst  `restart_usb_driver()` 调用次数        → 与用户体感的卡顿次数对账
- *   mcu  第 3 级 `mcu_reset()` 次数（跨复位累计，存在 watchdog scratch[0]）
+ *   mcu  第 3 级 `watchdog_reboot()` 次数（跨复位累计，存在 watchdog scratch[0]）
  *   st   最近一次判定失活时的 `USB_DRIVER.state`：2=USB_READY 4=USB_ACTIVE 5=USB_SUSPENDED
  *   up   本次上电已运行秒数
  */
